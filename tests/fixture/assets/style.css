@@ -1,0 +1,31 @@
+/* Atlas test fixture. .unused-thing is deliberately unused. */
+.card {
+  padding: 8px;
+}
+
+.btn,
+.field {
+  font: inherit;
+}
+
+.is-active {
+  color: green;
+}
+
+.theme--dark {
+  color: white;
+}
+
+@media (width >= 600px) {
+  .card {
+    padding: 16px;
+  }
+}
+
+.unused-thing {
+  display: none;
+}
+
+#output[hidden] {
+  display: none;
+}

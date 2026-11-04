@@ -1,0 +1,8 @@
+# Generated maps can include code names from private projects: keep them local.
+maps/
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+node_modules/
+.DS_Store

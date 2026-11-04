@@ -1,0 +1,20 @@
+# Settings for the code checks (Ruff). Nothing here is needed to RUN Atlas.
+[project]
+name = "atlas-code-map"
+version = "1.0.0"
+description = "Atlas — a map of your code: files, functions, HTML ids and CSS classes, and how they connect."
+requires-python = ">=3.9"
+dependencies = []  # standard library only
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = ["tests/fixture", "maps"]
+
+[tool.ruff.lint]
+# E/W style · F bugs · I import order · B likely bugs · UP modern syntax · SIM simpler code · RUF Ruff's own
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # allow typographic characters (…, →, —, ×) in messages and comments
+
+[tool.ruff.format]
+quote-style = "double"

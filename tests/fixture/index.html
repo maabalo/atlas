@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Atlas test fixture: a tiny page with known links (see tests/test_atlas.py). -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture</title>
+    <link rel="stylesheet" href="assets/style.css" />
+  </head>
+  <body>
+    <main id="app" class="card">
+      <label for="nameInput">Name</label>
+      <input id="nameInput" type="text" class="field" aria-describedby="ghostHint" />
+      <button id="goBtn" class="btn" type="button">Go</button>
+      <a href="#app">top</a>
+      <p id="output" class="theme"></p>
+    </main>
+    <script src="assets/app.js"></script>
+  </body>
+</html>

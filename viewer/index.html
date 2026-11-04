@@ -1,0 +1,262 @@
+<!doctype html>
+<!--
+  ==========================================================================
+  Atlas — interactive code map (viewer template)
+  --------------------------------------------------------------------------
+  This is a TEMPLATE. `python3 atlas.py build PROJECT` copies it into
+  maps/PROJECT/graph.html with style.css, app.js and the graph data inlined,
+  so the result is one file that opens from file:// with no internet.
+  (The three placeholders below are replaced by atlas_export.py section 03.)
+
+  LAYOUT MAP
+    0. sprite    — icons (<use href="#i-NAME">)
+    1. topbar    — brand, project name, help and theme buttons
+    2. sidebar   — search, filters (node types), legend, health checks
+    3. map       — the SVG graph + zoom/pan controls
+    4. details   — the selected node: where it is, what uses it, what it uses
+    5. overlays  — help dialog, screen-reader announcer
+  ==========================================================================
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Atlas — code map</title>
+    <meta name="color-scheme" content="light dark" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a7a52'/%3E%3Cg stroke='%23fff' stroke-width='2'%3E%3Cpath d='M9 10l13 4M9 10l4 13M22 14l-9 9'/%3E%3C/g%3E%3Cg fill='%23fff'%3E%3Ccircle cx='9' cy='10' r='3'/%3E%3Ccircle cx='22' cy='14' r='3'/%3E%3Ccircle cx='13' cy='23' r='3'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <script>
+      // Apply the saved theme before first paint (key matches THEME_KEY in app.js).
+      (function () {
+        try {
+          var theme = localStorage.getItem('atlas-theme');
+          if (theme === 'light' || theme === 'dark')
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (error) {
+          // Storage blocked: the system theme is used.
+        }
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="i-help" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="i-theme-auto" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" />
+      </symbol>
+      <symbol id="i-theme-light" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" />
+        <path
+          d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
+        />
+      </symbol>
+      <symbol id="i-theme-dark" viewBox="0 0 24 24">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </symbol>
+    </svg>
+
+    <a class="skip-link" href="#searchInput">Skip to search</a>
+
+    <!-- ===================== 1. TOP BAR ===================== -->
+    <header class="topbar">
+      <span class="brand"
+        ><span class="brand-prompt" aria-hidden="true">&gt;</span> atlas<span
+          class="brand-caret"
+          aria-hidden="true"
+        ></span
+      ></span>
+      <span id="projectName" class="project-name">project</span>
+      <div class="topbar-actions">
+        <button
+          id="helpBtn"
+          class="icon-btn"
+          type="button"
+          aria-label="How to read this map"
+          title="Help (?)"
+        >
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-help" /></svg>
+        </button>
+        <button id="themeBtn" class="icon-btn" type="button" aria-label="Theme"></button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <h1 class="sr-only">Code map</h1>
+
+      <!-- ===================== 2. SIDEBAR ===================== -->
+      <aside class="sidebar" aria-label="Search, filters and health checks">
+        <div class="search">
+          <label class="sr-only" for="searchInput">Find a file, function, #id or .class</label>
+          <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="#i-search" /></svg>
+          <input
+            id="searchInput"
+            class="search-input"
+            type="search"
+            placeholder="find renderCode, app.js, #id, .class…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-describedby="searchStatus"
+          />
+        </div>
+        <p id="searchStatus" class="sr-only" role="status" aria-live="polite"></p>
+        <!-- Search results (buttons). Filled by app.js section 11. -->
+        <ul id="searchResults" class="results" aria-label="Search results" hidden></ul>
+
+        <fieldset class="panel">
+          <legend class="panel-title">show</legend>
+          <!-- One checkbox per node type, with its count and map shape. Filled by app.js section 12. -->
+          <div id="typeFilters" class="filters"></div>
+          <label class="check">
+            <input id="inferredToggle" class="check-input" type="checkbox" checked />
+            <span>inferred links</span>
+          </label>
+        </fieldset>
+
+        <section class="panel" aria-labelledby="linksTitle">
+          <h2 id="linksTitle" class="panel-title">links</h2>
+          <ul class="legend">
+            <li><span class="line line--calls" aria-hidden="true"></span> calls</li>
+            <li><span class="line line--uses" aria-hidden="true"></span> uses</li>
+            <li><span class="line line--imports" aria-hidden="true"></span> imports / loads</li>
+            <li><span class="line line--styles" aria-hidden="true"></span> styles / declares</li>
+          </ul>
+        </section>
+
+        <section class="panel" aria-labelledby="healthTitle">
+          <h2 id="healthTitle" class="panel-title">health</h2>
+          <!-- Possible problems; filled by app.js section 13. -->
+          <div id="healthList" class="health"></div>
+        </section>
+      </aside>
+
+      <!-- ===================== 3. MAP ===================== -->
+      <section class="map" aria-labelledby="mapTitle">
+        <h2 id="mapTitle" class="sr-only">Map</h2>
+        <!-- Keyboard: arrow keys pan, + and - zoom, 0 fits the whole map. -->
+        <svg
+          id="graph"
+          class="graph"
+          tabindex="0"
+          role="img"
+          aria-label="Map of the project. Use search or the details panel to explore it with a keyboard or screen reader."
+        >
+          <g id="viewport">
+            <g id="edgeLayer"></g>
+            <g id="nodeLayer"></g>
+            <g id="labelLayer"></g>
+          </g>
+        </svg>
+        <div class="map-controls" role="group" aria-label="Zoom">
+          <button id="zoomInBtn" class="icon-btn" type="button" aria-label="Zoom in" title="Zoom in (+)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>
+          </button>
+          <button id="zoomOutBtn" class="icon-btn" type="button" aria-label="Zoom out" title="Zoom out (-)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-minus" /></svg>
+          </button>
+          <button id="fitBtn" class="icon-btn" type="button" aria-label="Fit the whole map" title="Fit (0)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit" /></svg>
+          </button>
+        </div>
+        <p id="mapHint" class="map-hint">drag to pan · scroll or +/− to zoom · click a dot</p>
+      </section>
+
+      <!-- ===================== 4. DETAILS ===================== -->
+      <section id="details" class="details" aria-labelledby="detailsTitle" tabindex="-1">
+        <h2 id="detailsTitle" class="details-title">overview</h2>
+        <!-- The selected node, or the project overview. Filled by app.js section 10. -->
+        <div id="detailsBody" class="details-body"></div>
+      </section>
+    </main>
+
+    <!-- ===================== 5. OVERLAYS ===================== -->
+    <dialog id="helpDialog" class="dialog" aria-labelledby="helpTitle">
+      <div class="dialog-bar">
+        <span class="dialog-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="dialog-path" aria-hidden="true">~/atlas/help.md</span>
+        <button class="icon-btn dialog-close" type="button" data-close aria-label="Close help">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <h2 id="helpTitle" class="help-title">Reading the map</h2>
+        <p class="help-lead">
+          Each shape is a piece of the project; each line is a link between two pieces. Click a shape (or
+          search) to see exactly what uses it and what it uses.
+        </p>
+        <dl class="help-defs">
+          <div>
+            <dt>■ square</dt>
+            <dd>A file</dd>
+          </div>
+          <div>
+            <dt>● circle</dt>
+            <dd>A function. Bigger = more connected (a "hub": change it carefully)</dd>
+          </div>
+          <div>
+            <dt>◆ diamond</dt>
+            <dd>A class (Python)</dd>
+          </div>
+          <div>
+            <dt>▲ triangle</dt>
+            <dd>An HTML id (#name)</dd>
+          </div>
+          <div>
+            <dt>○ ring</dt>
+            <dd>A CSS class (.name)</dd>
+          </div>
+          <div>
+            <dt>certain / inferred</dt>
+            <dd>
+              Certain links are written in the code. Inferred links were matched by name, so they're likely
+              but not guaranteed.
+            </dd>
+          </div>
+          <div>
+            <dt>health</dt>
+            <dd>
+              Possible problems: unused functions or CSS, ids that don't exist. Code that builds names at
+              runtime can use things Atlas can't see, so check before deleting.
+            </dd>
+          </div>
+        </dl>
+        <h3 class="help-heading">Keyboard</h3>
+        <p class="help-lead">
+          <kbd>/</kbd> search · <kbd>Esc</kbd> clear the selection · on the map: arrow keys pan, <kbd>+</kbd>
+          <kbd>−</kbd> zoom, <kbd>0</kbd> fit · <kbd>?</kbd> this help
+        </p>
+      </div>
+      <div class="dialog-foot">
+        <button class="btn btn-primary" type="button" data-close>got it</button>
+      </div>
+    </dialog>
+
+    <p id="announcer" class="sr-only" role="status" aria-live="polite"></p>
+
+    <!-- Graph data: replaced with the real JSON by atlas_export.py (must stay on one line). -->
+    <!-- prettier-ignore -->
+    <script id="graphData" type="application/json">{}</script>
+    <script src="app.js"></script>
+  </body>
+</html>
