@@ -5,6 +5,7 @@ version = "1.0.0"
 description = "Atlas — a map of your code: files, functions, HTML ids and CSS classes, and how they connect."
 requires-python = ">=3.9"
 dependencies = []  # standard library only
+license = "MIT"
 
 [tool.ruff]
 line-length = 120

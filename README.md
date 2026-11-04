@@ -145,3 +145,7 @@ npm install && npm run lint                # viewer: html-validate, stylelint, E
 ```
 
 `maps/` is in `.gitignore`, because a map lists the names inside a project, which may be private.
+
+## License
+
+[MIT](LICENSE): free to use, change and share, with credit. No warranty.

@@ -2,6 +2,7 @@
   "name": "atlas-viewer",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Atlas viewer checks. Node is only needed for these checks; Atlas itself runs with python3 atlas.py.",
   "scripts": {
     "lint": "npm run lint:html && npm run lint:css && npm run lint:js && npm run format:check",
