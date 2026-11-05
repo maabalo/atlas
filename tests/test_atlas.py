@@ -94,6 +94,13 @@ class GraphTest(unittest.TestCase):
         self.assertEqual(self.edge("file:assets/app.js", "css:.is-active", "uses").certainty, ag.CERTAIN)
         self.assertTrue(self.edge("file:index.html", "id:#nameInput", "uses"))  # <label for>
 
+    def test_ids_created_by_javascript_are_declared(self):
+        self.assertTrue(self.edge("file:assets/app.js", "id:#liveNote", "declares"))
+        self.assertNotIn("id:#notAnId", self.graph.nodes)  # el.dataset.id = '…' is not an element id
+
+    def test_hash_route_links_are_not_ids(self):
+        self.assertNotIn("id:#/settings", self.graph.nodes)
+
     def test_dynamic_class_name_prefix_is_inferred(self):
         self.assertEqual(self.edge("file:assets/app.js", "css:.theme--dark", "uses").certainty, ag.INFERRED)
 

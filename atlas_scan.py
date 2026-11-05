@@ -227,13 +227,14 @@ class _HtmlScanner(HTMLParser):
     handle_startendtag = handle_starttag
 
     def id_references(self, values: dict, line: int) -> None:
-        """for=, aria-*= and href="#id" all point at ids."""
+        """for=, aria-*= and href="#id" all point at ids (but "#/camps" and "#!/x" are app routes)."""
         for name in ID_LIST_ATTRIBUTES & values.keys():
             for ref in values[name].split():
                 self.facts.ids_used.append((ref, line, True))
         href = values.get("href", "")
-        if href.startswith("#") and len(href) > 1:
-            self.facts.ids_used.append((href[1:], line, True))
+        fragment = href[1:] if href.startswith("#") else ""
+        if fragment and not fragment.startswith(("/", "!")):
+            self.facts.ids_used.append((fragment, line, True))
 
     def loaded_file(self, tag: str, values: dict, line: int) -> None:
         """<script src> and <link rel="stylesheet" href> that point at files in this project."""
@@ -481,12 +482,16 @@ def enclosing_scope(scopes: list, offset: int):
 JS_ID_CALL = re.compile(r"(?:getElementById|byId)\(\s*['\"]([\w:-]+)['\"]")
 JS_SELECTOR_CALL = re.compile(r"(?:querySelector(?:All)?|closest|matches)\(\s*(['\"`])(.+?)\1")
 JS_CLASSLIST = re.compile(r"classList\.(?:add|remove|toggle|contains|replace)\(([^)]*)\)")
+# el.id = 'x' or setAttribute('id', 'x'); not el.dataset.id (a data-id attribute, not an element id)
+JS_ID_SET = re.compile(r"(?:(?<!dataset)\.id\s*=\s*|setAttribute\(\s*['\"]id['\"]\s*,\s*)['\"]([\w:-]+)['\"]")
 
 
 def js_dom_usage(strings: list[tuple[str, int]], text: str, facts: FileFacts) -> None:
     """Certain id/class uses from DOM calls, plus every string token for inferred matching."""
     for match in JS_ID_CALL.finditer(text):
         facts.ids_used.append((match.group(1), line_of(text, match.start()), True))
+    for match in JS_ID_SET.finditer(text):  # ids created by script count as declared
+        facts.ids_declared.append((match.group(1), line_of(text, match.start())))
     for match in JS_SELECTOR_CALL.finditer(text):
         line = line_of(text, match.start())
         selector = re.sub(r"\[[^\]]*\]", " ", match.group(2))

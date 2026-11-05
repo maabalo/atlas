@@ -25,7 +25,17 @@ const onGo = function () {
   out.textContent = greet(byId('nameInput').value);
   out.classList.toggle('is-active', true);
   out.className = `theme--${'dark'}`;
+  out.after(liveNote());
   return [...parts()];
 };
+
+function liveNote() {
+  const note = document.createElement('p');
+  note.id = 'liveNote'; // an id created by script: declared, so "#liveNote" below isn't missing
+  note.dataset.id = 'notAnId'; // a data-id attribute: must NOT count as an element id
+  return note;
+}
+
+byId('liveNote');
 
 document.querySelector('#goBtn').addEventListener('click', onGo);

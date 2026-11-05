@@ -139,7 +139,7 @@ It also skips files over 2 MB, which are almost always generated or minified.
 ## Checks (for development)
 
 ```sh
-python3 -m unittest discover -s tests -v   # 31 tests, no network
+python3 -m unittest discover -s tests -v   # 33 tests, no network
 ruff check . && ruff format --check .      # Python style (pyproject.toml)
 npm install && npm run lint                # viewer: html-validate, stylelint, ESLint, Prettier
 ```

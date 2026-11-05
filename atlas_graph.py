@@ -323,7 +323,7 @@ def hubs(graph: Graph, limit: int = 10, types: tuple[str, ...] = ("function", "c
 # can use things Atlas can't see, so always check before deleting.
 # =============================================================================
 def health(graph: Graph) -> dict[str, list[Node]]:
-    """{check name: [nodes]} — unused functions, unused CSS classes, missing ids, unused id styles."""
+    """{check name: [nodes]} — unused functions, unused CSS classes, missing ids."""
     used_by = Counter(e.target for e in graph.edges.values() if e.kind in ("calls", "uses"))
     declared = {e.target for e in graph.edges.values() if e.kind == "declares" and e.target.startswith("id:")}
     return {
