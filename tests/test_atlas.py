@@ -122,6 +122,11 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(graph.libraries, {"widgetlib"})
         self.assertNotIn(".widgetlib-panel", {n.name for n in ag.health(graph)["unused_css_classes"]})
 
+    def test_library_class_prefix_without_dashes(self):
+        graph = ag.Graph(root="x", libraries={"maplibre-gl"})
+        self.assertTrue(ag.from_library(graph, ag.Node("css:.maplibregl-map", "css-class", ".maplibregl-map")))
+        self.assertFalse(ag.from_library(graph, ag.Node("css:.map", "css-class", ".map")))
+
     def test_library_names(self):
         self.assertEqual(scan.library_name("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"), "leaflet")
         self.assertEqual(scan.library_name("//cdn.x.org/chart.min.js?v=2"), "chart")

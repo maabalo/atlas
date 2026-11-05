@@ -112,7 +112,7 @@ Atlas reads code; it doesn't run it. So a name **built at runtime** can be invis
 - `http.server` hooks such as `do_GET`
 - `__dunder__` methods
 - `main`
-- classes from libraries the page loads: with `…/leaflet.css`, classes like `.leaflet-tile-pane` belong to Leaflet
+- classes from libraries the page loads: with `…/leaflet.css`, classes like `.leaflet-tile-pane` belong to Leaflet (and with `maplibre-gl.css`, `.maplibregl-…` ones belong to MapLibre)
 
 Even so, **treat health results as "check this"**, not "delete this".
 
@@ -140,7 +140,7 @@ It also skips files over 2 MB, which are almost always generated or minified.
 ## Checks (for development)
 
 ```sh
-python3 -m unittest discover -s tests -v   # 35 tests, no network
+python3 -m unittest discover -s tests -v   # 36 tests, no network
 ruff check . && ruff format --check .      # Python style (pyproject.toml)
 npm install && npm run lint                # viewer: html-validate, stylelint, ESLint, Prettier
 ```

@@ -345,8 +345,10 @@ def health(graph: Graph) -> dict[str, list[Node]]:
 
 
 def from_library(graph: Graph, node: Node) -> bool:
-    """A class like ".leaflet-tile-pane" when the page loads leaflet.css/js: the library creates it, not our code."""
-    return any(node.name[1:].startswith(f"{library}-") for library in graph.libraries)
+    """A class like ".leaflet-tile-pane" when the page loads leaflet.css/js: the library creates it, not our code.
+    Dashes in the file name may be dropped in its classes: maplibre-gl.css → ".maplibregl-map"."""
+    prefixes = {f"{name}-" for library in graph.libraries for name in (library, library.replace("-", ""))}
+    return node.name[1:].startswith(tuple(prefixes))
 
 
 def is_entry_point(node: Node) -> bool:
