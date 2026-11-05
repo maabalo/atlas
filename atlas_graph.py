@@ -69,6 +69,7 @@ class Graph:
     nodes: dict[str, Node] = field(default_factory=dict)
     edges: dict[tuple[str, str, str], Edge] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    libraries: set[str] = field(default_factory=set)  # external libraries the pages load (their classes aren't ours)
 
     def add_node(self, node: Node) -> Node:
         """Add a node (the first definition wins if an id repeats)."""
@@ -106,6 +107,7 @@ def build_graph(root: Path) -> Graph:
     graph = Graph(root=str(root))
     for facts in all_facts:
         add_file_and_definitions(graph, facts)
+        graph.libraries |= facts.libraries
     link_names(graph, all_facts)
     link_dom(graph, all_facts)
     return graph
@@ -331,12 +333,20 @@ def health(graph: Graph) -> dict[str, list[Node]]:
             n for n in graph.nodes.values()
             if n.type in ("function", "class") and not used_by[n.id] and not is_entry_point(n)
         ],
-        "unused_css_classes": [n for n in graph.nodes.values() if n.type == "css-class" and not used_by[n.id]],
+        "unused_css_classes": [
+            n for n in graph.nodes.values()
+            if n.type == "css-class" and not used_by[n.id] and not from_library(graph, n)
+        ],
         "missing_ids": [
             n for n in graph.nodes.values()
             if n.type == "html-id" and n.id not in declared and used_by[n.id]
         ],
     }  # fmt: skip
+
+
+def from_library(graph: Graph, node: Node) -> bool:
+    """A class like ".leaflet-tile-pane" when the page loads leaflet.css/js: the library creates it, not our code."""
+    return any(node.name[1:].startswith(f"{library}-") for library in graph.libraries)
 
 
 def is_entry_point(node: Node) -> bool:

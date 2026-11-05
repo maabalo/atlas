@@ -84,6 +84,7 @@ class FileFacts:
     classes_declared: list[tuple[str, int]] = field(default_factory=list)  # CSS: classes styled
     classes_used: list[tuple[str, int, bool]] = field(default_factory=list)  # (class, line, certain?)
     strings: set[str] = field(default_factory=set)  # JS string tokens, matched against known ids/classes later
+    libraries: set[str] = field(default_factory=set)  # external CSS/JS libraries: ".../leaflet.css" → "leaflet"
     error: str = ""  # set when the file couldn't be parsed
 
 
@@ -241,11 +242,22 @@ class _HtmlScanner(HTMLParser):
         ref = values.get("src") if tag == "script" else values.get("href") if tag == "link" else None
         if tag == "link" and "stylesheet" not in values.get("rel", ""):
             return
-        if not ref or re.match(r"^[a-z]+:|^//", ref):  # external (https:, data:…) — not part of the project
+        if not ref:
+            return
+        if re.match(r"^[a-z]+:|^//", ref):  # external (https:, data:…): not ours, but remember the library's name
+            if library_name(ref):
+                self.facts.libraries.add(library_name(ref))
             return
         target = (self.base / ref.split("?")[0].split("#")[0]).resolve()
         if target.is_file() and self.root in target.parents:
             self.facts.loads.append((target.relative_to(self.root).as_posix(), line))
+
+
+def library_name(url: str) -> str:
+    """A library's name from its file URL: ".../leaflet.min.css" → "leaflet"; "" when it isn't .css/.js."""
+    last = url.split("?")[0].split("#")[0].rstrip("/").rsplit("/", 1)[-1].lower()
+    match = re.fullmatch(r"([a-z][a-z0-9-]{2,})(?:\.min)?\.(?:css|js|mjs)", last)
+    return match.group(1) if match else ""
 
 
 def scan_html(text: str, facts: FileFacts, path: Path, root: Path) -> None:

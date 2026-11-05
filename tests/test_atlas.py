@@ -117,6 +117,16 @@ class HealthTest(unittest.TestCase):
         self.assertEqual(found["unused_css_classes"], [".unused-thing"])
         self.assertEqual(found["missing_ids"], ["#ghostHint"])
 
+    def test_classes_from_external_libraries_are_not_unused(self):
+        graph = ag.build_graph(FIXTURE)
+        self.assertEqual(graph.libraries, {"widgetlib"})
+        self.assertNotIn(".widgetlib-panel", {n.name for n in ag.health(graph)["unused_css_classes"]})
+
+    def test_library_names(self):
+        self.assertEqual(scan.library_name("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"), "leaflet")
+        self.assertEqual(scan.library_name("//cdn.x.org/chart.min.js?v=2"), "chart")
+        self.assertEqual(scan.library_name("https://fonts.googleapis.com/css2?family=Inter"), "")
+
     def test_test_files_and_framework_hooks_are_entry_points(self):
         unused = {n.name for n in ag.health(ag.build_graph(FIXTURE))["unused_functions"]}
         self.assertNotIn("GreeterTest.helper_check", unused)

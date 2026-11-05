@@ -22,6 +22,11 @@
   }
 }
 
+/* Restyles a class that the external "widgetlib" library creates: not unused */
+.widgetlib-panel {
+  border: 0;
+}
+
 .unused-thing {
   display: none;
 }
