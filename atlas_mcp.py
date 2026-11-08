@@ -9,7 +9,7 @@ Least privilege: only projects inside the allowed folders can be mapped
 (--root, which can be given more than once; default: the folder it starts in).
 Every argument is treated as untrusted (Claude may be acting on text from a file).
 
-    claude mcp add atlas -- python3 /path/to/atlas_mcp.py --root ~/Documents/Web_Page
+    claude mcp add atlas -- python3 /path/to/atlas_mcp.py --root ~/projects
 
 TABLE OF CONTENTS
   01  Settings & tool list

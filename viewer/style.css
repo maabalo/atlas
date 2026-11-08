@@ -35,11 +35,11 @@
   --accent: #0a7a52;
   --on-accent: #fff;
   --warn: #8a5a00;
-  --node-file: #0a7a52;
-  --node-function: #1d4ed8;
-  --node-class: #6d28d9;
-  --node-id: #b45309;
-  --node-css: #be185d;
+  --node-file: #9a5b00;
+  --node-function: #8a6a00;
+  --node-class: #4a6a9c;
+  --node-id: #b4541a;
+  --node-css: #9c5f33;
   --edge: #8a96a3;
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -65,11 +65,11 @@
   --accent: #3ddc97;
   --on-accent: #04140d;
   --warn: #f0b429;
-  --node-file: #3ddc97;
-  --node-function: #60a5fa;
-  --node-class: #a78bfa;
-  --node-id: #f59e0b;
-  --node-css: #f472b6;
+  --node-file: #ffcf70;
+  --node-function: #fff0c4;
+  --node-class: #dfe8ff;
+  --node-id: #ffb27a;
+  --node-css: #ffe2c4;
   --edge: #5b6672;
   --shadow: 0 12px 40px rgb(0 0 0 / 50%);
 
@@ -90,11 +90,11 @@
     --accent: #3ddc97;
     --on-accent: #04140d;
     --warn: #f0b429;
-    --node-file: #3ddc97;
-    --node-function: #60a5fa;
-    --node-class: #a78bfa;
-    --node-id: #f59e0b;
-    --node-css: #f472b6;
+    --node-file: #ffcf70;
+    --node-function: #fff0c4;
+    --node-class: #dfe8ff;
+    --node-id: #ffb27a;
+    --node-css: #ffe2c4;
     --edge: #5b6672;
     --shadow: 0 12px 40px rgb(0 0 0 / 50%);
 
@@ -431,7 +431,59 @@ kbd {
   font: 12px var(--font-mono);
 }
 
-/* Small SVG of each node shape, used in filters, lists and details */
+/* The Islands panel: a heading with a small action, and rows whose name is a button */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-head .panel-title {
+  margin: 0;
+}
+
+.panel-action {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  color: var(--muted);
+  background: none;
+  font: 12px var(--font-mono);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.island-row {
+  cursor: default;
+}
+
+.island-name {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.island-name:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.island-row .check-count {
+  flex-shrink: 0;
+}
+
+/* Small SVG of each kind of star, used in filters, lists and details */
 .shape {
   flex-shrink: 0;
   width: 14px;
@@ -511,11 +563,11 @@ kbd {
   --faint: #8b95a1;
   --accent: #3ddc97;
   --on-accent: #04140d;
-  --node-file: #3ddc97;
-  --node-function: #7cb8ff;
-  --node-class: #b9a2ff;
-  --node-id: #ffb547;
-  --node-css: #ff8ccf;
+  --node-file: #ffcf70;
+  --node-function: #fff0c4;
+  --node-class: #dfe8ff;
+  --node-id: #ffb27a;
+  --node-css: #ffe2c4;
   --edge: #5a6b93;
   --community-none: #6b7487;
 
@@ -547,6 +599,26 @@ kbd {
 
 .graph:focus-visible {
   outline-offset: -3px;
+}
+
+/* Nebula clouds (app.js scatters them): soft colour behind everything */
+.nebula {
+  pointer-events: none;
+}
+
+/* Star dust along the spiral arms: thousands of tiny dots, the same size at any zoom */
+.dust {
+  fill: none;
+  stroke: #dfe8ff;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  opacity: 0.6;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.dust--warm {
+  stroke: #ffe2c4;
 }
 
 /* Background stars (app.js scatters them): cool white, a few warm */
@@ -612,11 +684,30 @@ kbd {
   fill: var(--node-id);
 }
 
-/* CSS classes are rings: color AND shape differ from functions */
+/* CSS classes are ring stars: color AND form differ from functions */
 .node--css-class {
   fill: var(--surface);
   stroke: var(--node-css);
   stroke-width: 2.5;
+}
+
+/* What makes each kind of star: a white-hot core, a soft halo, or a dashed orbit */
+.star-core {
+  fill: #fff;
+  stroke: none;
+  opacity: 0.85;
+}
+
+.star-halo {
+  stroke: none;
+  opacity: 0.22;
+}
+
+.star-orbit {
+  fill: none;
+  stroke: var(--node-id);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
 }
 
 .label {
@@ -635,9 +726,13 @@ kbd {
   fill: var(--community);
 }
 
+.graph.by-community .node--css-class,
+.graph.by-community .star-orbit {
+  stroke: var(--community);
+}
+
 .graph.by-community .node--css-class {
   fill: var(--surface);
-  stroke: var(--community);
 }
 
 /* Combined maps: each project's name over its island */

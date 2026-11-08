@@ -17,11 +17,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ATLAS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ATLAS_DIR))
 
 import atlas  # noqa: E402
+import atlas_app  # noqa: E402
 import atlas_export  # noqa: E402
 import atlas_graph as ag  # noqa: E402
 import atlas_mcp  # noqa: E402
@@ -393,6 +395,60 @@ class CliTest(unittest.TestCase):
             self.assertEqual(code, atlas.EXIT_OK)
             self.assertTrue(Path(tmp, "graph.html").is_file())
         self.assertIn("Mapped fixture", out)
+
+
+class AppLauncherTests(unittest.TestCase):
+    """The Mac app's launcher (atlas_app.py), with macOS dialogs replaced by fakes."""
+
+    def test_cancelling_the_folder_picker_does_nothing(self):
+        result = subprocess.CompletedProcess([], 1, "", "execution error: User canceled. (-128)")
+        with mock.patch.object(atlas_app, "run_applescript", return_value=result):
+            self.assertIsNone(atlas_app.choose_folder())
+            with mock.patch.object(atlas_app, "my_projects", return_value=[]):
+                self.assertEqual(atlas_app.main([]), atlas.EXIT_OK)
+
+    @mock.patch.object(atlas_app, "my_projects", return_value=[])
+    def test_a_broken_picker_is_reported(self, _projects):
+        result = subprocess.CompletedProcess([], 1, "", "execution error: no window server (-1)")
+        with mock.patch.object(atlas_app, "run_applescript", return_value=result) as script:
+            self.assertEqual(atlas_app.main([]), atlas.EXIT_ERROR)
+        self.assertIn("no window server", script.call_args.args[-1])
+
+    @mock.patch.object(atlas_app, "run_applescript")
+    @mock.patch("webbrowser.open")
+    def test_builds_the_map_in_the_app_folder_and_opens_it(self, opened, _script):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(atlas_app, "MAPS_DIR", Path(folder)):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(atlas_app.main([str(FIXTURE)]), atlas.EXIT_OK)
+            self.assertTrue((Path(folder) / FIXTURE.name / "graph.html").is_file())
+            opened.assert_called_once()
+
+    def test_finds_every_project_except_atlas_itself(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            for name in ("00/Code_Map", "01/Camp", "01/Next", "07/New", "Resume_page", "Claude_Backup", "01/.hidden"):
+                (home / name).mkdir(parents=True)
+            found = [str(path.relative_to(home)) for path in atlas_app.my_projects(home)]
+        self.assertEqual(found, ["01/Camp", "01/Next", "07/New", "Resume_page"])
+
+    def test_no_projects_folder_means_no_projects(self):
+        self.assertEqual(atlas_app.my_projects(Path("/no/such/folder")), [])
+
+    @mock.patch.object(atlas_app, "run_applescript")
+    @mock.patch("webbrowser.open")
+    def test_double_click_builds_one_combined_map(self, _opened, _script):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(atlas_app, "MAPS_DIR", Path(folder)):
+            with (
+                mock.patch.object(atlas_app, "my_projects", return_value=[FIXTURE]),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(atlas_app.main([]), atlas.EXIT_OK)
+            self.assertTrue((Path(folder) / atlas_app.COMBINED_NAME / "graph.html").is_file())
+
+    def test_a_missing_folder_shows_the_problem(self):
+        with mock.patch.object(atlas_app, "run_applescript") as script:
+            self.assertEqual(atlas_app.main(["/no/such/folder"]), atlas.EXIT_ERROR)
+        self.assertIn("/no/such/folder", script.call_args.args[-1])
 
 
 if __name__ == "__main__":

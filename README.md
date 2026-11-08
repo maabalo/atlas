@@ -32,6 +32,12 @@ python3 atlas.py build ~/path/to/your/project --open
 ```
 On Windows, use `python` instead of `python3`.
 
+## The Mac app
+
+Prefer double-clicking? Build `Atlas.app` once with `sh packaging/build_app.sh` (it needs Python and an internet connection to fetch PyInstaller), then open `dist/Atlas.app`. Double-click it and it rebuilds one combined map of the projects in `~/Documents/Project`, then opens it in your browser. On a Mac without that folder, it asks which folder to map. The app doesn't need Python to run. Maps are saved in `~/Library/Application Support/Atlas/maps/`, never in your project.
+
+The app isn't notarized by Apple, so if you copy it to another Mac, the first launch needs right-click → **Open** (or approval in System Settings → Privacy & Security). The build runs only on the kind of Mac that built it (Apple silicon or Intel).
+
 ## Commands
 
 Run them from the Atlas folder. `PROJECT` is the path to any project folder.
@@ -80,21 +86,22 @@ missing ids: none ✓
 
 The map looks like a **galaxy**: deep space with scattered stars and faint nebulae, each dot glowing in its own colour, and links as faint light trails. It stays dark in the light theme too (the panels around it follow the theme).
 
-Each type of thing has its own **shape** as well as its own colour:
+Each type of thing is its own **kind of star** as well as its own colour:
 
-| Shape | Meaning |
+| Star | Meaning |
 |---|---|
-| ■ square | a file |
-| ● circle | a function (bigger means more connected) |
-| ◆ diamond | a Python class |
-| ▲ triangle | an HTML id (hidden at first: tick **html ids**) |
-| ○ ring | a CSS class (hidden at first: tick **css classes**) |
+| giant star (with a halo) | a file |
+| sun | a function (bigger means more connected) |
+| binary star (two together) | a Python class |
+| pulsar (dashed orbit) | an HTML id (hidden at first: tick **html ids**) |
+| ring star (hollow) | a CSS class (hidden at first: tick **css classes**) |
 
 - **Communities:** the overview lists the biggest; click one to fit the map to it. Tick **community colours** to colour the dots by community (their shapes still show their type). Selecting a dot shows its community too.
+- **Islands:** on a combined map, the left panel counts the folders pulled in. Untick one to hide it, or click its name to fly to it.
 - **Labels** are hidden at first, to keep the map calm. Tick **labels** to show file, hub and project names. The selected shape and its neighbours are always named, and pointing at a dot shows its name.
 - **Click a shape**, or **search** for it, to see everything that uses it and everything it uses. Click any row to jump there.
 - **Drag** to move around. **Scroll** or use **+ / −** to zoom, and **⛶** to fit the whole map.
-- **3D (the default):** the map opens spread out in depth, drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
+- **3D (the default):** the map opens as a spiral galaxy, spread out in depth (where a star sits in the swirl is for looks; the lines show the real links), drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
 - **Keyboard:**
   - `/` search
   - `Esc` clear the selection
@@ -170,7 +177,7 @@ It also skips files over 2 MB, which are almost always generated or minified.
 ## Checks (for development)
 
 ```sh
-python3 -m unittest discover -s tests -v   # 50 tests, no network
+python3 -m unittest discover -s tests -v   # 57 tests, no network
 ruff check . && ruff format --check .      # Python style (pyproject.toml)
 npm install && npm run lint                # viewer: html-validate, stylelint, ESLint, Prettier
 ```

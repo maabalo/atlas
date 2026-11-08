@@ -11,7 +11,7 @@
   LAYOUT MAP
     0. sprite    — icons (<use href="#i-NAME">)
     1. topbar    — brand, project name, help and theme buttons
-    2. sidebar   — search, filters (node types), legend, health checks
+    2. sidebar   — search, islands (combined maps), filters (node types), legend, health checks
     3. map       — the SVG graph + zoom/pan controls
     4. details   — the selected node: where it is, what uses it, what it uses
     5. overlays  — help dialog, screen-reader announcer
@@ -124,9 +124,18 @@
         <!-- Search results (buttons). Filled by app.js section 11. -->
         <ul id="searchResults" class="results" aria-label="Search results" hidden></ul>
 
+        <!-- Combined maps only: each folder pulled in, to show, hide or fly to. Filled by app.js section 12. -->
+        <section id="islandPanel" class="panel" aria-labelledby="islandsTitle" hidden>
+          <div class="panel-head">
+            <h2 id="islandsTitle" class="panel-title">islands · <span id="islandCount"></span></h2>
+            <button id="islandToggle" class="panel-action" type="button">hide all</button>
+          </div>
+          <div id="islandList" class="filters"></div>
+        </section>
+
         <fieldset class="panel">
           <legend class="panel-title">show</legend>
-          <!-- One checkbox per node type, with its count and map shape. Filled by app.js section 12. -->
+          <!-- One checkbox per node type, with its count and kind of star. Filled by app.js section 12. -->
           <div id="typeFilters" class="filters"></div>
           <label class="check">
             <input id="inferredToggle" class="check-input" type="checkbox" checked />
@@ -180,10 +189,34 @@
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
+            <!-- Nebula clouds: soft colours that fade out to nothing at the edge -->
+            <radialGradient id="nebula-core">
+              <stop offset="0" stop-color="#fff4d0" stop-opacity="0.95" />
+              <stop offset="0.35" stop-color="#ffc27a" stop-opacity="0.42" />
+              <stop offset="1" stop-color="#ff9a5c" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nebula-violet">
+              <stop offset="0" stop-color="#8a5cf0" stop-opacity="0.5" />
+              <stop offset="1" stop-color="#8a5cf0" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nebula-teal">
+              <stop offset="0" stop-color="#2fc4b2" stop-opacity="0.38" />
+              <stop offset="1" stop-color="#2fc4b2" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nebula-rose">
+              <stop offset="0" stop-color="#e0559a" stop-opacity="0.4" />
+              <stop offset="1" stop-color="#e0559a" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="nebula-blue">
+              <stop offset="0" stop-color="#3f7fe8" stop-opacity="0.42" />
+              <stop offset="1" stop-color="#3f7fe8" stop-opacity="0" />
+            </radialGradient>
           </defs>
-          <!-- Background stars: scattered by app.js, fixed in place while the map moves -->
+          <!-- Background stars: scattered by app.js; in 3D they turn with the galaxy -->
           <g id="starLayer" class="star-layer" aria-hidden="true"></g>
           <g id="viewport">
+            <!-- Nebula clouds: real places in the galaxy, so they turn and zoom with it -->
+            <g id="nebulaLayer" aria-hidden="true"></g>
             <g id="edgeLayer"></g>
             <g id="nodeLayer" class="node-layer"></g>
             <g id="labelLayer"></g>
@@ -233,29 +266,36 @@
       <div class="dialog-body">
         <h2 id="helpTitle" class="help-title">Reading the map</h2>
         <p class="help-lead">
-          Each shape is a piece of the project; each line is a link between two pieces. Click a shape (or
+          Each star is a piece of the project; each line is a link between two pieces. Click a star (or
           search) to see exactly what uses it and what it uses.
         </p>
         <dl class="help-defs">
           <div>
-            <dt>■ square</dt>
+            <dt>giant star (with a halo)</dt>
             <dd>A file</dd>
           </div>
           <div>
-            <dt>● circle</dt>
+            <dt>sun</dt>
             <dd>A function. Bigger = more connected (a "hub": change it carefully)</dd>
           </div>
           <div>
-            <dt>◆ diamond</dt>
+            <dt>binary star (two together)</dt>
             <dd>A class (Python)</dd>
           </div>
           <div>
-            <dt>▲ triangle</dt>
+            <dt>pulsar (dashed orbit)</dt>
             <dd>An HTML id (#name)</dd>
           </div>
           <div>
-            <dt>○ ring</dt>
+            <dt>ring star (hollow)</dt>
             <dd>A CSS class (.name)</dd>
+          </div>
+          <div>
+            <dt>islands</dt>
+            <dd>
+              On a map of several projects, each folder is an island. The panel on the left counts them:
+              untick a box to hide one, or click a name to fly to it.
+            </dd>
           </div>
           <div>
             <dt>labels</dt>
@@ -295,9 +335,11 @@
         </p>
         <h3 class="help-heading">3D</h3>
         <p class="help-lead">
-          The map opens in 3D: drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or
-          <kbd>Shift</kbd> + arrows pan. Nearer shapes are drawn bigger. The <strong>3D</strong> button (top
-          of the map's corner buttons) switches to the flat map and back.
+          The map opens in 3D, shaped like a spiral galaxy (the swirl is for looks; the lines show the real
+          links): drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or <kbd>Shift</kbd> + arrows
+          pan. It spins freely in every direction, around whatever is in the middle of the screen, and the
+          clouds and stars turn with it. Nearer stars are drawn bigger. The <strong>3D</strong> button (top of
+          the map's corner buttons) switches to the flat map and back.
         </p>
       </div>
       <div class="dialog-foot">

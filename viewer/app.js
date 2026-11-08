@@ -18,7 +18,7 @@
      09  Details panel
      10  Overview & health
      11  Search
-     12  Filter checkboxes
+     12  Filter checkboxes & islands
      13  Theme, help & announcements
      14  Keyboard shortcuts
      15  Init
@@ -32,14 +32,38 @@
   const THEME_KEY = 'atlas-theme'; // also read by the inline script in index.html
   const THEMES = ['auto', 'light', 'dark'];
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  /** Node types: label, map shape, and whether they're shown at first (ids/classes can be busy). */
+  /** Node types: label, kind of star, and whether they're shown at first (ids/classes can be busy). */
   const TYPES = [
-    { type: 'file', label: 'files', shape: 'square', on: true },
-    { type: 'function', label: 'functions', shape: 'circle', on: true },
-    { type: 'class', label: 'classes', shape: 'diamond', on: true },
-    { type: 'html-id', label: 'html ids', shape: 'triangle', on: false },
-    { type: 'css-class', label: 'css classes', shape: 'ring', on: false },
+    { type: 'file', label: 'files', star: 'giant', on: true },
+    { type: 'function', label: 'functions', star: 'sun', on: true },
+    { type: 'class', label: 'classes', star: 'binary', on: true },
+    { type: 'html-id', label: 'html ids', star: 'pulsar', on: false },
+    { type: 'css-class', label: 'css classes', star: 'ring', on: false },
   ];
+  /** The circles of each kind of star: [part, sideways offset, radius], both × the star's size. */
+  const STAR_PARTS = {
+    giant: [
+      ['halo', 0, 1.5],
+      ['body', 0, 1],
+      ['core', 0, 0.45],
+    ],
+    sun: [
+      ['body', 0, 1],
+      ['core', 0, 0.4],
+    ],
+    binary: [
+      ['body', -0.6, 0.62],
+      ['core', -0.6, 0.28],
+      ['body', 0.6, 0.62],
+      ['core', 0.6, 0.28],
+    ],
+    pulsar: [
+      ['orbit', 0, 1],
+      ['body', 0, 0.5],
+      ['core', 0, 0.22],
+    ],
+    ring: [['ring', 0, 0.85]],
+  };
   const LINK_WORDS = {
     out: {
       calls: 'calls',
@@ -73,8 +97,21 @@
   const GLOW_PX = 2.5; // how far each dot's glow spreads, in screen pixels
   const MIN_ZOOM = 0.05; // far enough out for a combined map of many projects
   const FIT_MARGIN = 56; // px kept free around the map when fitting (room for names and project titles)
-  const STAR_COUNT = 260; // background stars
-  const STAR_SEED = 20261108; // the same sky every time // functions with this many links always show their name
+  const STAR_COUNT = 900; // stars all around the sky (in 3D, about a quarter are in view at once)
+  const FLAT_STAR_COUNT = 260; // how many the flat 2D map shows
+  const SKY_REACH = 0.55; // how far the sky spreads, × the map's diagonal (just past its corners)
+  const STAR_SEED = 20261108; // the same sky every time
+  const NEBULA_COLORS = ['violet', 'teal', 'rose', 'blue', 'violet', 'rose', 'teal']; // one cloud each
+  const NEBULA_PUFFS = 9; // overlapping soft ellipses per cloud, so it isn't a plain oval
+  const NEBULA_MIN_LOOSE = 3; // clouds not tied to an island (more on maps with few islands)
+  const NEBULA_SEED = 7281;
+  // The spiral galaxy (3D)
+  const DISC_SPREAD = 1.5; // how wide the arms reach, × the ring the 2D islands sit on
+  const ARM_SWEEP = 2.6; // radians each arm curves from the centre to the rim
+  const SWIRL = 2.2; // how much more the middle is twisted than the rim (radians)
+  const PULL = 1.35; // above 1 draws everything toward the core
+  const FLATTEN = 0.35; // the galaxy's thickness compared with its width
+  const DUST_COUNT = 1100; // tiny stars tracing the arms
   const MAX_LIST = 150; // longest list drawn in the details panel
   const ZOOM_STEP = 1.25;
   const PAN_STEP = 60;
@@ -82,7 +119,9 @@
   const DEPTH_SPREAD = 300; // how deep nodes start when switching to 3D
   const TURN_SPEED = 0.008; // radians per pixel dragged
   const TURN_STEP = 0.15; // radians per arrow key
-  const MAX_TILT = 1.4; // radians: never turn the map fully upside down
+  const GLIDE_DECAY = 0.94; // after letting go, the spin keeps this share of its speed each frame
+  const GLIDE_STOP = 0.0004; // radians per frame: slow enough to stop
+  const GLIDE_RECENT_MS = 80; // only glide if the pointer was still moving when it let go
   const HINTS = {
     '2d': 'drag to pan · scroll or +/− to zoom · click a dot',
     '3d': 'drag to turn · shift+drag to pan · scroll to zoom · click a dot',
@@ -119,7 +158,7 @@
   }
 
   /** Combined maps: each project's home, around a circle, with room in proportion to its size
-      (and, for 3D, spread evenly over a sphere of the same size, so no view stacks them up).
+      (and, for 3D, along two spiral arms, biggest nearest the centre).
       Nodes are pulled to their own project's home, so projects form separate islands. */
   function projectHomes() {
     const homes = new Map();
@@ -131,32 +170,36 @@
     });
     const total = sizes.reduce((sum, size) => sum + size, 0);
     const radius = (total / (2 * Math.PI)) * 1.2;
+    const bySize = [...projects.keys()].sort((a, b) => sizes[b] - sizes[a]);
     let around = 0;
     projects.forEach((project, i) => {
       const angle = ((around + sizes[i] / 2) / total) * Math.PI * 2;
       homes.set(project, {
         x: Math.cos(angle) * radius,
         y: Math.sin(angle) * radius,
-        sphere: spherePoint(i, projects.length, radius),
+        disc: discHome(bySize.indexOf(i), projects.length, radius),
       });
       around += sizes[i];
     });
     return homes;
   }
 
-  /** Point i of n spread evenly over a sphere (the "golden angle" spiral). */
-  function spherePoint(i, n, radius) {
-    const y = 1 - (2 * (i + 0.5)) / n;
-    const ring = Math.sqrt(1 - y * y);
-    const angle = i * Math.PI * (3 - Math.sqrt(5));
-    return { x: Math.cos(angle) * ring * radius, y: y * radius, z: Math.sin(angle) * ring * radius };
+  /** Where the island of this size rank sits on the arms (the arms take turns). */
+  function discHome(rank, count, radius) {
+    return spiralPoint(0.2 + (0.8 * (rank + 0.5)) / count, rank % 2, radius * DISC_SPREAD);
   }
 
-  /** Where a node's gravity pulls: its project's home (on the sphere in 3D), or the middle. */
+  /** A place on spiral arm 0 or 1, at `t` of the way out (0 = centre, 1 = the rim), in the galaxy's flat disc. */
+  function spiralPoint(t, arm, radius) {
+    const angle = arm * Math.PI - ARM_SWEEP * t;
+    return { x: Math.cos(angle) * t * radius, y: 0, z: Math.sin(angle) * t * radius, t };
+  }
+
+  /** Where a node's gravity pulls: its project's home (on the spiral arms in 3D), or the middle. */
   function homeOf(node) {
     const home = HOMES.get(projectOf(node));
     if (!home) return { x: 0, y: 0, z: 0 };
-    return state.mode === '3d' ? home.sphere : { x: home.x, y: home.y, z: 0 };
+    return state.mode === '3d' ? home.disc : { x: home.x, y: home.y, z: 0 };
   }
 
   /** Map of key value → list of edges. */
@@ -202,6 +245,11 @@
     searchStatus: byId('searchStatus'),
     searchResults: byId('searchResults'),
     typeFilters: byId('typeFilters'),
+    islandPanel: byId('islandPanel'),
+    islandCount: byId('islandCount'),
+    islandList: byId('islandList'),
+    islandToggle: byId('islandToggle'),
+    nebulaLayer: byId('nebulaLayer'),
     inferredToggle: byId('inferredToggle'),
     labelsToggle: byId('labelsToggle'),
     communityToggle: byId('communityToggle'),
@@ -261,24 +309,34 @@
   const state = {
     theme: 'auto',
     shownTypes: new Set(TYPES.filter((entry) => entry.on).map((entry) => entry.type)),
+    hiddenProjects: new Set(), // combined maps: islands switched off in the Islands panel
     showInferred: true,
     showLabels: false, // file, hub and project names (the selection is always named)
     byCommunity: false, // colour dots by community instead of by type
     positions: new Map(), // node id → {x, y, z}, kept between layouts so the map stays stable
     view: { x: 0, y: 0, k: 1 },
     mode: '3d', // or '2d' (3D is the default)
-    camera: { yaw: 0.5, tilt: -0.3, distance: 1200 }, // 3D: turn around the middle, then perspective
+    camera: { rotation: turnMatrix(0.5, -1.05), distance: 1200 }, // 3D: how the galaxy is turned, then perspective
+    galaxyRadius: 0, // 3D: the size the swirl is measured against (set once, so hiding things doesn't reshape it)
+    pivot: { x: 0, y: 0, z: 0 }, // 3D: the point the galaxy turns around, always at the middle of the screen
+    glide: null, // 3D: the spin still coasting after letting go
+    sky: [], // background stars: {dot, x, y (% for 2D), dir (direction in 3D)}
     screen: new Map(), // node id → where it's drawn now: {x, y, s (size), depth}
     frame: 0, // a pending requestAnimationFrame (3D turning)
     switched: false, // during the layout right after a 2D/3D switch
     selected: null,
     drag: null, // the pointer gesture in progress (section 07)
-    drawn: { nodes: new Map(), edges: [], labels: new Map(), islands: new Map() },
+    drawn: { nodes: new Map(), edges: [], labels: new Map(), islands: new Map(), clouds: [], dust: [] },
   };
 
-  /** Nodes whose type is switched on. */
+  /** Whether a node's type and island are both switched on. */
+  function nodeShown(node) {
+    return state.shownTypes.has(node.type) && !state.hiddenProjects.has(projectOf(node));
+  }
+
+  /** Nodes that are switched on. */
   function visibleNodes() {
-    return DATA.nodes.filter((node) => state.shownTypes.has(node.type));
+    return DATA.nodes.filter(nodeShown);
   }
 
   /** Edges between two visible nodes (inferred ones only when that box is ticked). */
@@ -433,6 +491,7 @@
     const edges = visibleEdges(shown);
     layout(nodes, edges);
     state.camera.distance = cameraDistance(nodes);
+    state.galaxyRadius = state.galaxyRadius || state.camera.distance / 3;
     drawEdges(edges);
     drawNodes(nodes);
     drawLabels();
@@ -456,12 +515,13 @@
     state.drawn.nodes = new Map();
     const shapes = nodes.map((node) => {
       const radius = node.type === 'file' ? 9 : 4 + Math.min(10, Math.sqrt(degree.get(node.id) || 0) * 1.6);
-      const shape = shapeElement(typeInfo(node.type).shape, 0, 0, radius);
+      const shape = starElement(typeInfo(node.type).star, 0, 0, radius);
       shape.setAttribute('class', `node node--${node.type}`);
       shape.style.setProperty('--community', communityColor(node.community));
       shape.dataset.id = node.id;
-      shape.append(svgEl('title')); // pointing at a dot shows its name (handy while labels are hidden)
-      shape.firstChild.textContent = node.name;
+      const title = svgEl('title'); // pointing at a star shows its name (handy while labels are hidden)
+      title.textContent = node.name;
+      shape.append(title);
       state.drawn.nodes.set(node.id, shape);
       return shape;
     });
@@ -481,19 +541,16 @@
     announce(`Community ${group.name}: ${group.size} members.`);
   }
 
-  /** SVG for a shape centred on (x, y): square, circle, diamond, triangle or ring. */
-  function shapeElement(shape, x, y, r) {
-    if (shape === 'square') return svgEl('rect', { x: x - r, y: y - r, width: r * 2, height: r * 2, rx: 2 });
-    if (shape === 'diamond') {
-      return svgEl('path', { d: `M${x} ${y - r}L${x + r} ${y}L${x} ${y + r}L${x - r} ${y}Z` });
-    }
-    if (shape === 'triangle') {
-      return svgEl('path', { d: `M${x} ${y - r}L${x + r} ${y + r * 0.8}L${x - r} ${y + r * 0.8}Z` });
-    }
-    return svgEl('circle', { cx: x, cy: y, r: shape === 'ring' ? r * 0.85 : r });
+  /** SVG for one kind of star centred on (x, y): always round, built from the circles in STAR_PARTS. */
+  function starElement(kind, x, y, r) {
+    const star = svgEl('g');
+    STAR_PARTS[kind].forEach(([part, offset, size]) => {
+      star.append(svgEl('circle', { class: `star-${part}`, cx: x + offset * r, cy: y, r: size * r }));
+    });
+    return star;
   }
 
-  /** A small icon of a node's shape, for lists (16×16 SVG). */
+  /** A small icon of a node's kind of star, for lists (16×16 SVG). */
   function shapeIcon(type) {
     const svg = svgEl('svg', {
       class: 'shape',
@@ -501,7 +558,7 @@
       'aria-hidden': 'true',
       focusable: 'false',
     });
-    const shape = shapeElement(typeInfo(type).shape, 8, 8, 6);
+    const shape = starElement(typeInfo(type).star, 8, 8, 5);
     shape.setAttribute('class', `node node--${type}`);
     svg.append(shape);
     return svg;
@@ -526,20 +583,129 @@
     placeIslands();
   }
 
-  /** The background stars: scattered over the map (the same pattern every time), never moving. */
+  /** The background stars (the same pattern every time): all around the sky in 3D, scattered flat in 2D. */
   function drawStars() {
     const random = seededRandom(STAR_SEED);
-    const stars = Array.from({ length: STAR_COUNT }, (_, i) => {
-      const [x, y, bright] = [random(), random(), random()];
-      return svgEl('circle', {
-        cx: `${(x * 100).toFixed(2)}%`,
-        cy: `${(y * 100).toFixed(2)}%`,
+    state.sky = Array.from({ length: STAR_COUNT }, (_, i) => {
+      const [x, y, bright] = [random() * 100, random() * 100, random()];
+      const dot = svgEl('circle', {
         r: (0.4 + bright * bright * 1.2).toFixed(2),
         opacity: (0.25 + bright * 0.6).toFixed(2),
         class: i % 7 === 0 ? 'star star--warm' : 'star',
       });
+      return { dot, x, y, dir: skyDirection(random() * 2 - 1, random() * Math.PI * 2) };
     });
-    els.starLayer.replaceChildren(...stars);
+    els.starLayer.replaceChildren(...state.sky.map((star) => star.dot));
+  }
+
+  /** A direction from height (-1 to 1) and angle: spreads stars evenly over the whole sky. */
+  function skyDirection(height, angle) {
+    const ring = Math.sqrt(1 - height * height);
+    return [ring * Math.cos(angle), height, ring * Math.sin(angle)];
+  }
+
+  /** Put the stars where they are now. 3D: only the sky beyond the galaxy shows, and it turns with it. */
+  function placeStars() {
+    const box = els.graph.getBoundingClientRect();
+    const reach = Math.hypot(box.width, box.height) * SKY_REACH;
+    state.sky.forEach((star, i) => {
+      if (state.mode !== '3d') return placeFlatStar(star, i);
+      const [x, y, depth] = turned(star.dir);
+      star.dot.setAttribute('visibility', depth > 0 ? 'visible' : 'hidden');
+      if (depth <= 0) return;
+      star.dot.setAttribute('cx', box.width / 2 + x * reach);
+      star.dot.setAttribute('cy', box.height / 2 + y * reach);
+    });
+  }
+
+  /** 2D: the first stars, at fixed spots. */
+  function placeFlatStar(star, i) {
+    star.dot.setAttribute('visibility', i < FLAT_STAR_COUNT ? 'visible' : 'hidden');
+    star.dot.setAttribute('cx', `${star.x.toFixed(2)}%`);
+    star.dot.setAttribute('cy', `${star.y.toFixed(2)}%`);
+  }
+
+  /** The nebula clouds: real places in the galaxy (one around each island, a few loose), so they turn with it. */
+  function drawNebulae() {
+    const random = seededRandom(NEBULA_SEED);
+    const radius = state.camera.distance / 3;
+    const growth = armGrowth();
+    const middles = [...HOMES.values()].map(({ disc }) => ({ x: disc.x * growth, y: 0, z: disc.z * growth }));
+    const loose = Math.max(NEBULA_MIN_LOOSE, NEBULA_COLORS.length - middles.length);
+    for (let i = 0; i < loose; i++) {
+      const [x, y, z] = skyDirection(random() * 2 - 1, random() * Math.PI * 2);
+      const far = radius * (0.3 + random() * 0.8);
+      middles.push({ x: x * far, y: y * far, z: z * far });
+    }
+    state.drawn.clouds = middles.flatMap((middle, i) =>
+      nebulaPuffs(random, NEBULA_COLORS[i % NEBULA_COLORS.length], middle, radius),
+    );
+    state.drawn.clouds.push(galaxyCore(radius));
+    state.drawn.dust = armDust(random, radius, growth);
+    els.nebulaLayer.replaceChildren(
+      ...state.drawn.clouds.map((puff) => puff.shape),
+      ...state.drawn.dust.map((group) => group.path),
+    );
+  }
+
+  /** How much farther out the islands settled than their homes (their stars push apart), so arms and clouds match. */
+  function armGrowth() {
+    const ratios = [...HOMES].map(([project, { disc }]) => {
+      const points = DATA.nodes
+        .filter((node) => projectOf(node) === project && state.positions.has(node.id))
+        .map((node) => state.positions.get(node.id));
+      if (!points.length) return 1;
+      const mean = (axis) => points.reduce((sum, point) => sum + point[axis], 0) / points.length;
+      return Math.hypot(mean('x'), mean('z')) / Math.hypot(disc.x, disc.z);
+    });
+    return ratios.length ? ratios.reduce((sum, ratio) => sum + ratio, 0) / ratios.length : 1;
+  }
+
+  /** The bright glow at the very centre. */
+  function galaxyCore(radius) {
+    const size = (radius * 0.34).toFixed(1);
+    const shape = svgEl('ellipse', { class: 'nebula', rx: size, ry: size, fill: 'url(#nebula-core)' });
+    return { point: { x: 0, y: 0, z: 0 }, shape };
+  }
+
+  /** Tiny stars along the arms: one cool and one warm path, so thousands of dots stay cheap to move. */
+  function armDust(random, radius, growth) {
+    const first = [...HOMES.values()][0];
+    const armRadius = first ? (Math.hypot(first.disc.x, first.disc.z) / first.disc.t) * growth : radius;
+    const scatter = () => (random() - 0.5) * armRadius * 0.16;
+    const groups = ['dust', 'dust dust--warm'].map((name) => ({
+      path: svgEl('path', { class: name }),
+      points: [],
+    }));
+    for (let i = 0; i < DUST_COUNT; i++) {
+      const spot = spiralPoint(random() ** 0.7 * 1.1, i % 2, armRadius);
+      const point = { x: spot.x + scatter(), y: scatter() * 0.6, z: spot.z + scatter() };
+      groups[i % 5 === 0 ? 1 : 0].points.push(point);
+    }
+    return groups;
+  }
+
+  /** Move the dust (3D only: the flat map has no arms). */
+  function placeDust() {
+    state.drawn.dust.forEach(({ path, points }) => {
+      const dots = points.map(project).map((spot) => `M${spot.x.toFixed(1)} ${spot.y.toFixed(1)}h0`);
+      path.setAttribute('d', state.mode === '3d' ? dots.join('') : '');
+    });
+  }
+
+  /** One cloud: soft ellipses bunched around a point, sized in proportion to the galaxy. */
+  function nebulaPuffs(random, color, middle, radius) {
+    const spread = () => (random() - 0.5) * 0.68 * radius;
+    return Array.from({ length: NEBULA_PUFFS }, () => ({
+      point: { x: middle.x + spread(), y: middle.y + spread(), z: middle.z + spread() },
+      shape: svgEl('ellipse', {
+        class: 'nebula',
+        rx: (radius * (0.1 + random() * 0.18)).toFixed(1),
+        ry: (radius * (0.12 + random() * 0.22)).toFixed(1),
+        fill: `url(#nebula-${color})`,
+        opacity: (0.15 + random() * 0.25).toFixed(2),
+      }),
+    }));
   }
 
   /** A repeatable random-number generator (mulberry32): numbers in [0, 1) with no visible pattern
@@ -586,14 +752,50 @@
     return DATA.meta.projects ? `${parts[0]}/${parts[parts.length - 1]}` : parts[parts.length - 1];
   }
 
+  /** Where a layout point sits in the spiral: flattened, twisted harder near the middle, and drawn inward. */
+  function galaxyPoint({ x, y, z }) {
+    const reach = Math.hypot(x, z) / (state.galaxyRadius || 1);
+    const angle = Math.atan2(z, x) + SWIRL / (0.35 + reach);
+    const pulled = reach ** PULL * state.galaxyRadius;
+    return { x: Math.cos(angle) * pulled, y: y * FLATTEN, z: Math.sin(angle) * pulled };
+  }
+
+  /** The camera's turn as a 3×3 matrix (nine numbers, row by row): yaw left/right, then tilt up/down. */
+  function turnMatrix(yaw, tilt) {
+    const [cy, sy, ct, st] = [Math.cos(yaw), Math.sin(yaw), Math.cos(tilt), Math.sin(tilt)];
+    return [cy, 0, -sy, -st * sy, ct, -st * cy, ct * sy, st, ct * cy];
+  }
+
+  /** Two turns combined: `a` applied after `b`. */
+  function multiply(a, b) {
+    return a.map((_, i) => {
+      const [row, column] = [Math.floor(i / 3), i % 3];
+      return a[row * 3] * b[column] + a[row * 3 + 1] * b[column + 3] + a[row * 3 + 2] * b[column + 6];
+    });
+  }
+
+  /** Remove the tiny rounding errors that build up over endless spinning, so the galaxy never skews. */
+  function straightened(m) {
+    const unit = ([x, y, z]) => [x, y, z].map((value) => value / Math.hypot(x, y, z));
+    const a = unit(m.slice(0, 3));
+    const dot = a[0] * m[3] + a[1] * m[4] + a[2] * m[5];
+    const b = unit([m[3] - dot * a[0], m[4] - dot * a[1], m[5] - dot * a[2]]);
+    return [...a, ...b, a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  }
+
+  /** [x, y, depth] of a vector after the camera's turn. */
+  function turned([x, y, z]) {
+    const r = state.camera.rotation;
+    return [r[0] * x + r[1] * y + r[2] * z, r[3] * x + r[4] * y + r[5] * z, r[6] * x + r[7] * y + r[8] * z];
+  }
+
   /** Where a layout point is drawn: as is in 2D; in 3D turned by the camera, then in perspective. */
   function project(point) {
     if (state.mode !== '3d') return { x: point.x, y: point.y, s: 1, depth: 0 };
-    const { yaw, tilt, distance } = state.camera;
-    const x = point.x * Math.cos(yaw) - point.z * Math.sin(yaw);
-    const z = point.x * Math.sin(yaw) + point.z * Math.cos(yaw);
-    const y = point.y * Math.cos(tilt) - z * Math.sin(tilt);
-    const depth = point.y * Math.sin(tilt) + z * Math.cos(tilt); // bigger = farther away
+    const { pivot } = state;
+    const spot = galaxyPoint(point);
+    const [x, y, depth] = turned([spot.x - pivot.x, spot.y - pivot.y, spot.z - pivot.z]); // bigger depth = farther
+    const { distance } = state.camera;
     const s = distance / Math.max(distance * 0.2, distance + depth);
     return { x: x * s, y: y * s, s, depth };
   }
@@ -624,7 +826,18 @@
     });
     state.drawn.labels.forEach((label, id) => placeLabel(label, state.screen.get(id)));
     placeIslands();
+    placeClouds();
+    placeDust();
+    placeStars();
     if (state.mode === '3d') sortByDepth();
+  }
+
+  /** Move each puff of cloud to where it's drawn now (nearer ones look bigger, like the stars). */
+  function placeClouds() {
+    state.drawn.clouds.forEach(({ shape, point }) => {
+      const spot = project(point);
+      shape.setAttribute('transform', `translate(${spot.x} ${spot.y}) scale(${spot.s})`);
+    });
   }
 
   /** A label just right of its shape. */
@@ -672,11 +885,47 @@
     els.mapHint.textContent = HINTS[state.mode];
   }
 
-  /** 3D: turn the camera (left/right around the middle, and tilt up/down). */
-  function turnTo(yaw, tilt) {
-    state.camera = { ...state.camera, yaw, tilt: Math.max(-MAX_TILT, Math.min(MAX_TILT, tilt)) };
+  /** 3D: spin the galaxy a little more around the screen's own axes, so it always follows the pointer
+      and has no end stop in any direction. */
+  function turnBy(yaw, tilt) {
+    state.camera.rotation = straightened(multiply(turnMatrix(yaw, tilt), state.camera.rotation));
     placeSoon();
   }
+
+  /** 3D: move what's in the middle of the screen, so turning always stays centred on it. */
+  function panBy(dx, dy) {
+    const r = state.camera.rotation;
+    const { k } = state.view;
+    state.pivot = {
+      x: state.pivot.x - (r[0] * dx + r[3] * dy) / k,
+      y: state.pivot.y - (r[1] * dx + r[4] * dy) / k,
+      z: state.pivot.z - (r[2] * dx + r[5] * dy) / k,
+    };
+    placeSoon();
+  }
+
+  /** Keep coasting after letting go, slowing down (not for people who asked for less motion). */
+  function startGlide({ yaw, tilt }) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    state.glide = { yaw, tilt, frame: requestAnimationFrame(stepGlide) };
+  }
+
+  /** One frame of coasting. */
+  function stepGlide() {
+    const glide = state.glide;
+    glide.yaw *= GLIDE_DECAY;
+    glide.tilt *= GLIDE_DECAY;
+    if (Math.abs(glide.yaw) + Math.abs(glide.tilt) < GLIDE_STOP) return stopGlide();
+    turnBy(glide.yaw, glide.tilt);
+    glide.frame = requestAnimationFrame(stepGlide);
+  }
+
+  /** Stop coasting (a new drag takes over). */
+  function stopGlide() {
+    if (state.glide) cancelAnimationFrame(state.glide.frame);
+    state.glide = null;
+  }
+
   /** Apply state.view to the SVG. */
   function applyView() {
     const { x, y, k } = state.view;
@@ -692,6 +941,11 @@
     const cy = py === undefined ? box.height / 2 : py;
     const k = Math.max(MIN_ZOOM, Math.min(6, state.view.k * factor));
     const ratio = k / state.view.k;
+    if (state.mode === '3d') {
+      state.view = { ...state.view, k };
+      applyView();
+      return panBy((cx - box.width / 2) * (1 - ratio), (cy - box.height / 2) * (1 - ratio));
+    }
     state.view = { x: cx - (cx - state.view.x) * ratio, y: cy - (cy - state.view.y) * ratio, k };
     applyView();
   }
@@ -699,22 +953,43 @@
   /** Fit all visible nodes (or one node's neighbourhood) into the map area. */
   function fit(ids = [...state.drawn.nodes.keys()]) {
     if (!ids.length) return;
+    if (state.mode === '3d') pivotOn(ids);
     const points = ids.map((id) => state.screen.get(id)).filter(Boolean);
     const xs = points.map((p) => p.x);
     const ys = points.map((p) => p.y);
     const box = els.graph.getBoundingClientRect();
-    const width = Math.max(...xs) - Math.min(...xs) || 1;
-    const height = Math.max(...ys) - Math.min(...ys) || 1;
+    // 3D keeps the pivot in the exact middle, so the map is measured outward from it
+    const span = (values) =>
+      (state.mode === '3d'
+        ? 2 * Math.max(...values.map(Math.abs))
+        : Math.max(...values) - Math.min(...values)) || 1;
     const room = (size) => Math.max(40, size - FIT_MARGIN * 2); // the margin is in screen pixels: titles fit
-    const k = Math.max(MIN_ZOOM, Math.min(2.5, Math.min(room(box.width) / width, room(box.height) / height)));
-    const midX = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const midY = (Math.max(...ys) + Math.min(...ys)) / 2;
-    state.view = { x: box.width / 2 - midX * k, y: box.height / 2 - midY * k, k };
+    const k = Math.max(
+      MIN_ZOOM,
+      Math.min(2.5, Math.min(room(box.width) / span(xs), room(box.height) / span(ys))),
+    );
+    const middle = (values) => (state.mode === '3d' ? 0 : (Math.max(...values) + Math.min(...values)) / 2);
+    state.view = { x: box.width / 2 - middle(xs) * k, y: box.height / 2 - middle(ys) * k, k };
     applyView();
+  }
+
+  /** 3D: turn around the middle of these nodes from now on. */
+  function pivotOn(ids) {
+    const points = ids
+      .map((id) => state.positions.get(id))
+      .filter(Boolean)
+      .map(galaxyPoint);
+    const middle = (axis) => {
+      const values = points.map((point) => point[axis]);
+      return (Math.min(...values) + Math.max(...values)) / 2;
+    };
+    state.pivot = { x: middle('x'), y: middle('y'), z: middle('z') };
+    place();
   }
 
   /** Pointer down on the map: start a possible drag, remembering the shape under the pointer. */
   function startDrag(event) {
+    stopGlide();
     // Remember the shape now: pointer capture makes later events target the <svg> itself.
     const shape = event.target.closest('.node');
     const id = shape ? shape.dataset.id : null;
@@ -722,7 +997,9 @@
       x: event.clientX,
       y: event.clientY,
       view: { ...state.view },
-      camera: { ...state.camera },
+      lastX: event.clientX,
+      lastY: event.clientY,
+      spin: null, // the latest bit of turning, to coast on after letting go
       moved: false,
       id,
     };
@@ -735,20 +1012,29 @@
     if (!drag) return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
+    const [stepX, stepY] = [event.clientX - drag.lastX, event.clientY - drag.lastY];
+    Object.assign(drag, { lastX: event.clientX, lastY: event.clientY });
     if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
     if (!drag.moved) return;
     els.graph.classList.add('is-panning');
-    if (state.mode === '3d' && !event.shiftKey) {
-      turnTo(drag.camera.yaw + dx * TURN_SPEED, drag.camera.tilt - dy * TURN_SPEED);
-      return;
-    }
+    if (state.mode === '3d') return moveDrag3d(drag, event, stepX, stepY);
     state.view = { ...drag.view, x: drag.view.x + dx, y: drag.view.y + dy };
     applyView();
   }
 
-  /** Pointer up (or cancelled): a click without movement selects the shape, or clears on the background. */
+  /** 3D drag: turn the galaxy, or with Shift pan it. */
+  function moveDrag3d(drag, event, stepX, stepY) {
+    if (event.shiftKey) return panBy(stepX, stepY);
+    drag.spin = { yaw: stepX * TURN_SPEED, tilt: -stepY * TURN_SPEED, at: event.timeStamp };
+    turnBy(drag.spin.yaw, drag.spin.tilt);
+  }
+
+  /** Pointer up (or cancelled): a click without movement selects the shape, or clears on the background;
+      a spin that was still moving keeps coasting. */
   function endDrag(event) {
-    if (state.drag && !state.drag.moved && event.type === 'pointerup') select(state.drag.id);
+    const drag = state.drag;
+    if (drag && !drag.moved && event.type === 'pointerup') select(drag.id);
+    if (drag && drag.spin && event.timeStamp - drag.spin.at < GLIDE_RECENT_MS) startGlide(drag.spin);
     state.drag = null;
     els.graph.classList.remove('is-panning');
   }
@@ -765,7 +1051,9 @@
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const pan = PAN_KEYS[event.key];
     if (pan && state.mode === '3d' && !event.shiftKey) {
-      turnTo(state.camera.yaw + pan[0] * TURN_STEP, state.camera.tilt - pan[1] * TURN_STEP);
+      turnBy(pan[0] * TURN_STEP, -pan[1] * TURN_STEP);
+    } else if (pan && state.mode === '3d') {
+      panBy(pan[0] * PAN_STEP, pan[1] * PAN_STEP);
     } else if (pan) {
       const { x, y, k } = state.view;
       state.view = { x: x + pan[0] * PAN_STEP, y: y + pan[1] * PAN_STEP, k };
@@ -792,8 +1080,9 @@
 
   /** Select a node (or null to clear): highlight it, show its details, announce it. */
   function select(id) {
-    if (id && !state.shownTypes.has(nodeById.get(id).type)) {
+    if (id && !nodeShown(nodeById.get(id))) {
       state.shownTypes.add(nodeById.get(id).type); // make sure it's on the map
+      state.hiddenProjects.delete(projectOf(nodeById.get(id)));
       syncFilterBoxes();
       state.selected = id;
       redraw();
@@ -825,6 +1114,10 @@
   /** Select from a list (search, details, health) and bring the node into view. */
   function goTo(id) {
     select(id);
+    if (state.mode === '3d' && state.positions.has(id)) {
+      state.pivot = galaxyPoint(state.positions.get(id)); // turning now centres on this node
+      place();
+    }
     const point = state.screen.get(id);
     if (!point) return;
     const box = els.graph.getBoundingClientRect();
@@ -1058,6 +1351,7 @@
     els.typeFilters.querySelectorAll('input').forEach((box) => {
       box.checked = state.shownTypes.has(box.value);
     });
+    syncIslands();
   }
 
   /** A type box changed: show/hide that type and redraw. */
@@ -1068,6 +1362,78 @@
     redraw();
     fit();
     renderDetails();
+  }
+
+  /** Combined maps: one row per project in the Islands panel. */
+  function buildIslands() {
+    const projects = [...HOMES.keys()];
+    els.islandPanel.hidden = !projects.length;
+    els.islandList.replaceChildren(...projects.map(islandRow));
+    syncIslands();
+  }
+
+  /** One island: a box to show or hide it, its name (flies there), and how many files it has. */
+  function islandRow(project) {
+    const files = DATA.nodes.filter((node) => node.type === 'file' && projectOf(node) === project).length;
+    const row = el('div', 'check island-row');
+    const box = el('input', 'check-input');
+    box.type = 'checkbox';
+    box.value = project;
+    box.setAttribute('aria-label', `Show ${project}`);
+    const name = el('button', 'island-name', project);
+    name.type = 'button';
+    name.title = `Fly to ${project}`;
+    name.dataset.project = project;
+    row.append(box, name, el('span', 'check-count', `${files} ${files === 1 ? 'file' : 'files'}`));
+    return row;
+  }
+
+  /** Make the boxes, the "8 of 8" count and the show/hide-all button match state. */
+  function syncIslands() {
+    const total = HOMES.size;
+    els.islandList.querySelectorAll('input').forEach((box) => {
+      box.checked = !state.hiddenProjects.has(box.value);
+    });
+    els.islandCount.textContent = `${total - state.hiddenProjects.size} of ${total}`;
+    els.islandToggle.textContent = state.hiddenProjects.size ? 'show all' : 'hide all';
+  }
+
+  /** The islands changed: redraw, fit, and update the panel. */
+  function refreshIslands() {
+    syncIslands();
+    redraw();
+    fit();
+    renderDetails();
+    announce(`${els.islandCount.textContent} islands shown.`);
+  }
+
+  /** An island's box changed. */
+  function handleIslandChange(event) {
+    const { value, checked } = event.target;
+    if (checked) state.hiddenProjects.delete(value);
+    else state.hiddenProjects.add(value);
+    refreshIslands();
+  }
+
+  /** Show every island, or hide them all if none is hidden. */
+  function toggleAllIslands() {
+    state.hiddenProjects = new Set(state.hiddenProjects.size ? [] : HOMES.keys());
+    refreshIslands();
+  }
+
+  /** Fit the map to one island (showing it first if it's hidden). */
+  function flyToIsland(project) {
+    if (state.hiddenProjects.delete(project)) refreshIslands();
+    const ids = [...state.drawn.nodes.keys()].filter((id) => projectOf(nodeById.get(id)) === project);
+    if (!ids.length) return announce(`${project} has nothing shown. Tick more types under show.`);
+    fit(ids);
+    announce(`Showing ${project}.`);
+  }
+
+  /** A click in the islands list: only the names do anything (the boxes use "change"). */
+  function handleIslandClick(event) {
+    const name = event.target.closest('[data-project]');
+    if (name) flyToIsland(name.dataset.project);
   }
 
   /* ==========================================================================
@@ -1152,6 +1518,9 @@
   /** The "show" panel: node types, inferred links, labels and community colours. */
   function bindFilters() {
     els.typeFilters.addEventListener('change', handleFilterChange);
+    els.islandList.addEventListener('change', handleIslandChange);
+    els.islandList.addEventListener('click', handleIslandClick);
+    els.islandToggle.addEventListener('click', toggleAllIslands);
     els.inferredToggle.addEventListener('change', () => {
       state.showInferred = els.inferredToggle.checked;
       redraw();
@@ -1189,10 +1558,12 @@
     els.projectName.textContent = project;
     document.title = `${project} — Atlas code map`;
     buildFilters();
+    buildIslands();
     bindEvents();
     drawStars();
     showMode();
     redraw();
+    drawNebulae(); // sized to the galaxy, so after the first layout
     fit();
     renderDetails();
     renderHealth();
