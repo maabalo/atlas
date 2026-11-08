@@ -132,6 +132,14 @@
             <input id="inferredToggle" class="check-input" type="checkbox" checked />
             <span>inferred links</span>
           </label>
+          <label class="check">
+            <input id="labelsToggle" class="check-input" type="checkbox" />
+            <span>labels</span>
+          </label>
+          <label class="check">
+            <input id="communityToggle" class="check-input" type="checkbox" />
+            <span>community colours</span>
+          </label>
         </fieldset>
 
         <section class="panel" aria-labelledby="linksTitle">
@@ -154,7 +162,7 @@
       <!-- ===================== 3. MAP ===================== -->
       <section class="map" aria-labelledby="mapTitle">
         <h2 id="mapTitle" class="sr-only">Map</h2>
-        <!-- Keyboard: arrow keys pan, + and - zoom, 0 fits the whole map. -->
+        <!-- Keyboard: arrow keys pan (in 3D: turn; Shift+arrows pan), + and - zoom, 0 fits the whole map. -->
         <svg
           id="graph"
           class="graph"
@@ -162,13 +170,36 @@
           role="img"
           aria-label="Map of the project. Use search or the details panel to explore it with a keyboard or screen reader."
         >
+          <defs>
+            <!-- Galaxy glow: each dot shines in its own colour (app.js keeps the blur the same on screen at any zoom) -->
+            <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur id="glowBlur" in="SourceGraphic" stdDeviation="3" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <!-- Background stars: scattered by app.js, fixed in place while the map moves -->
+          <g id="starLayer" class="star-layer" aria-hidden="true"></g>
           <g id="viewport">
             <g id="edgeLayer"></g>
-            <g id="nodeLayer"></g>
+            <g id="nodeLayer" class="node-layer"></g>
             <g id="labelLayer"></g>
           </g>
         </svg>
-        <div class="map-controls" role="group" aria-label="Zoom">
+        <div class="map-controls" role="group" aria-label="View">
+          <button
+            id="depthBtn"
+            class="icon-btn depth-btn"
+            type="button"
+            aria-pressed="true"
+            aria-label="3D view"
+            title="3D view: drag to turn"
+          >
+            3D
+          </button>
           <button id="zoomInBtn" class="icon-btn" type="button" aria-label="Zoom in" title="Zoom in (+)">
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>
           </button>
@@ -179,7 +210,7 @@
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit" /></svg>
           </button>
         </div>
-        <p id="mapHint" class="map-hint">drag to pan · scroll or +/− to zoom · click a dot</p>
+        <p id="mapHint" class="map-hint">drag to turn · shift+drag to pan · scroll to zoom · click a dot</p>
       </section>
 
       <!-- ===================== 4. DETAILS ===================== -->
@@ -227,6 +258,22 @@
             <dd>A CSS class (.name)</dd>
           </div>
           <div>
+            <dt>labels</dt>
+            <dd>
+              Names are hidden at first, to keep the map calm: tick <strong>labels</strong> to show file, hub
+              and project names. The selected shape and its neighbours are always named, and pointing at a dot
+              shows its name.
+            </dd>
+          </div>
+          <div>
+            <dt>communities</dt>
+            <dd>
+              Groups of code linked mostly to each other (subsystems). Tick
+              <strong>community colours</strong> to colour the dots by group; the overview lists the biggest,
+              and clicking one fits the map to it.
+            </dd>
+          </div>
+          <div>
             <dt>certain / inferred</dt>
             <dd>
               Certain links are written in the code. Inferred links were matched by name, so they're likely
@@ -243,8 +290,14 @@
         </dl>
         <h3 class="help-heading">Keyboard</h3>
         <p class="help-lead">
-          <kbd>/</kbd> search · <kbd>Esc</kbd> clear the selection · on the map: arrow keys pan, <kbd>+</kbd>
-          <kbd>−</kbd> zoom, <kbd>0</kbd> fit · <kbd>?</kbd> this help
+          <kbd>/</kbd> search · <kbd>Esc</kbd> clear the selection · on the map: arrow keys turn (2D: pan),
+          <kbd>+</kbd> <kbd>−</kbd> zoom, <kbd>0</kbd> fit · <kbd>?</kbd> this help
+        </p>
+        <h3 class="help-heading">3D</h3>
+        <p class="help-lead">
+          The map opens in 3D: drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or
+          <kbd>Shift</kbd> + arrows pan. Nearer shapes are drawn bigger. The <strong>3D</strong> button (top
+          of the map's corner buttons) switches to the flat map and back.
         </p>
       </div>
       <div class="dialog-foot">

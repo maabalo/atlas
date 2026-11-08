@@ -39,11 +39,13 @@ Run them from the Atlas folder. `PROJECT` is the path to any project folder.
 | Command | What it answers |
 |---|---|
 | `python3 atlas.py build PROJECT` | Makes the map: `graph.html`, `GRAPH_REPORT.md` and `graph.json` in `maps/PROJECT/`. Add `--open` to open it in the browser, or `--out FOLDER` to save it somewhere else. |
+| `python3 atlas.py build P1 P2 … --name NAME` | One **combined map** of several projects in `maps/NAME/`. Each project becomes its own island with its name over it, and every path starts with the project's folder name (`my_site/assets/js/app.js`), so projects never link to each other by accident. Two projects can't share a folder name. |
 | `python3 atlas.py uses PROJECT NAME` | What uses NAME? (who calls it, loads it, styles it) |
 | `python3 atlas.py deps PROJECT NAME` | What does NAME use? |
 | `python3 atlas.py explain PROJECT NAME` | Both, plus where NAME is defined. |
 | `python3 atlas.py path PROJECT A B` | The shortest chain of links between A and B. |
 | `python3 atlas.py hubs PROJECT [-n 10]` | The most-connected functions and classes. These are the riskiest to change. |
+| `python3 atlas.py communities PROJECT [-n 15]` | The **subsystems**: groups of code linked mostly to each other (Louvain method), biggest first, each named after its main file and hubs, e.g. `cloud.js — db · auth`. |
 | `python3 atlas.py check PROJECT` | Health checks. The exit code is `3` if anything is found, so you can run it before committing. |
 
 **NAME** can be:
@@ -76,6 +78,8 @@ missing ids: none ✓
 
 `graph.html` is a single file. It opens straight from Finder, works offline, and you can send it to someone.
 
+The map looks like a **galaxy**: deep space with scattered stars and faint nebulae, each dot glowing in its own colour, and links as faint light trails. It stays dark in the light theme too (the panels around it follow the theme).
+
 Each type of thing has its own **shape** as well as its own colour:
 
 | Shape | Meaning |
@@ -86,14 +90,39 @@ Each type of thing has its own **shape** as well as its own colour:
 | ▲ triangle | an HTML id (hidden at first: tick **html ids**) |
 | ○ ring | a CSS class (hidden at first: tick **css classes**) |
 
+- **Communities:** the overview lists the biggest; click one to fit the map to it. Tick **community colours** to colour the dots by community (their shapes still show their type). Selecting a dot shows its community too.
+- **Labels** are hidden at first, to keep the map calm. Tick **labels** to show file, hub and project names. The selected shape and its neighbours are always named, and pointing at a dot shows its name.
 - **Click a shape**, or **search** for it, to see everything that uses it and everything it uses. Click any row to jump there.
 - **Drag** to move around. **Scroll** or use **+ / −** to zoom, and **⛶** to fit the whole map.
+- **3D (the default):** the map opens spread out in depth, drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
 - **Keyboard:**
   - `/` search
   - `Esc` clear the selection
   - `?` help
-  - on the map: arrow keys pan, `+` and `-` zoom, `0` fits the whole map
+  - on the map: arrow keys turn (`Shift` + arrows pan; in 2D they pan), `+` and `-` zoom, `0` fits the whole map
 - The **health** panel lists possible problems. Click one to find it on the map.
+
+## Ask Atlas from Claude Code (MCP server)
+
+`atlas_mcp.py` lets Claude Code (or any MCP client) ask Atlas directly, instead of searching through files. It uses only the standard library, it's **read-only**, and it maps only projects inside the folders you give it with `--root` (repeatable; default: the folder it starts in).
+
+```sh
+claude mcp add atlas -- python3 /full/path/to/atlas/atlas_mcp.py --root ~/projects
+```
+
+Then `/mcp` in Claude Code shows its tools:
+
+| Tool | What it answers |
+|---|---|
+| `atlas_overview` | Counts, biggest hubs, communities and health of a project: a good first question |
+| `atlas_explain` | Everything about one thing: where it is, its community, what uses it, what it uses |
+| `atlas_uses` / `atlas_deps` | What uses NAME / what NAME uses |
+| `atlas_path` | The shortest chain of links between two things |
+| `atlas_hubs` | The most-connected functions and classes |
+| `atlas_communities` | The subsystems, biggest first |
+| `atlas_check` | Health checks |
+
+Every argument is checked (types, lengths, limits, the allowed folders) before anything is read, and long answers are cut at 300 lines.
 
 ## Certain vs. inferred links
 
@@ -123,10 +152,11 @@ Even so, **treat health results as "check this"**, not "delete this".
 | File | Job |
 |---|---|
 | `atlas_scan.py` | Reads each file. Python is parsed exactly with `ast`, and HTML with `html.parser`. JS and CSS use careful pattern matching: comments and strings are blanked first, and template literals are handled at any depth. |
-| `atlas_graph.py` | Builds the graph: nodes, links, certainty, queries, health checks. |
+| `atlas_graph.py` | Builds the graph: nodes, links, certainty, queries, health checks, communities (Louvain, run on each connected part separately, so projects in a combined map get the same groups as on their own). |
 | `atlas_export.py` | Writes the JSON, the Markdown report and the single-file HTML map. |
-| `atlas.py` | The command line. |
-| `viewer/` | The map page template: `index.html`, `style.css`, `app.js`. It uses no libraries; the layout is a small force simulation. |
+| `atlas.py` | The command line. Its answers are text lines, shared with the MCP server. |
+| `atlas_mcp.py` | The MCP server (JSON-RPC 2.0 over stdio, written by hand: no SDK needed). |
+| `viewer/` | The map page template: `index.html`, `style.css`, `app.js`. It uses no libraries; the layout is a small force simulation (in 2D or 3D), and the 3D view is plain SVG with its own perspective maths. Links are weakened by how many links their ends have (like d3), so a hub with dozens of links can't push the layout apart. |
 | `tests/` | `test_atlas.py`, plus `fixture/`, a tiny project where every tricky case has a known answer. |
 
 Atlas skips these folders:
@@ -140,7 +170,7 @@ It also skips files over 2 MB, which are almost always generated or minified.
 ## Checks (for development)
 
 ```sh
-python3 -m unittest discover -s tests -v   # 36 tests, no network
+python3 -m unittest discover -s tests -v   # 50 tests, no network
 ruff check . && ruff format --check .      # Python style (pyproject.toml)
 npm install && npm run lint                # viewer: html-validate, stylelint, ESLint, Prettier
 ```

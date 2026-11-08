@@ -11,18 +11,19 @@ Certainty:  "certain"  — written explicitly in the code (a call, an import, ge
 
 TABLE OF CONTENTS
   01  Graph data structure
-  02  Building the graph
+  02  Building the graph (and combining several projects)
   03  Linking names (functions, modules)
   04  Linking ids & CSS classes
   05  Finding nodes by name
   06  Questions: uses, depends on, path, hubs
   07  Health checks
+  08  Communities (subsystems)
 """
 
 from __future__ import annotations
 
-from collections import Counter, deque
-from dataclasses import dataclass, field
+from collections import Counter, defaultdict, deque
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import atlas_scan as scan
@@ -32,6 +33,8 @@ CERTAIN, INFERRED = "certain", "inferred"
 FRAMEWORK_HOOKS = ("do_", "handle_", "test", "setUp", "tearDown", "visit_", "__")
 FRAMEWORK_NAMES = {"main", "log_message", "setUpClass", "tearDownClass"}
 MAX_METHOD_MATCHES = 3  # obj.name() linking to more methods than this is noise (think .get, .run)
+MIN_COMMUNITY = 3  # smaller groups (often lone CSS classes) aren't reported as communities
+MAX_PASSES = 20  # Louvain: moving rounds per level (it settles long before this)
 
 
 # =============================================================================
@@ -70,6 +73,7 @@ class Graph:
     edges: dict[tuple[str, str, str], Edge] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     libraries: set[str] = field(default_factory=set)  # external libraries the pages load (their classes aren't ours)
+    projects: list[str] = field(default_factory=list)  # the projects in a combined map (empty for one project)
 
     def add_node(self, node: Node) -> Node:
         """Add a node (the first definition wins if an id repeats)."""
@@ -125,6 +129,36 @@ def add_file_and_definitions(graph: Graph, facts: scan.FileFacts) -> None:
         node.file, node.line, node.lang = facts.path, definition.line, facts.lang
         graph.add_node(node)
         graph.add_edge(file_id, node.id, "declares", CERTAIN, definition.line)
+
+
+def merge_graphs(graphs: list[Graph], name: str) -> Graph:
+    """One graph of several projects. Every id and path starts with its project's folder name
+    (file:my_site/app.js, id:my_site/#x), so projects never link to each other by accident."""
+    merged = Graph(root=name)
+    for graph in graphs:
+        project = Path(graph.root).name
+        merged.projects.append(project)
+        for node in graph.nodes.values():
+            merged.add_node(prefixed_node(node, project))
+        for edge in graph.edges.values():
+            moved = replace(edge, source=prefixed_id(edge.source, project), target=prefixed_id(edge.target, project))
+            merged.edges[(moved.source, moved.target, moved.kind)] = moved
+        merged.errors += [f"{project}/{error}" for error in graph.errors]
+        merged.libraries |= graph.libraries
+    return merged
+
+
+def prefixed_id(node_id: str, project: str) -> str:
+    """'fn:app.js::init' → 'fn:my_site/app.js::init' (the type prefix stays first)."""
+    kind, _, rest = node_id.partition(":")
+    return f"{kind}:{project}/{rest}"
+
+
+def prefixed_node(node: Node, project: str) -> Node:
+    """A copy of a node inside a combined map: its id, file (and a file's name) start with the project."""
+    in_project = f"{project}/{node.file}" if node.file else ""
+    name = in_project if node.type == "file" else node.name
+    return replace(node, id=prefixed_id(node.id, project), file=in_project, name=name)
 
 
 # =============================================================================
@@ -356,3 +390,133 @@ def is_entry_point(node: Node) -> bool:
     short = node.name.rsplit(".", 1)[-1]
     in_test_file = Path(node.file).name.startswith("test_") or Path(node.file).stem.endswith("_test")
     return short in FRAMEWORK_NAMES or short.startswith(FRAMEWORK_HOOKS) or (in_test_file and node.lang == "python")
+
+
+# =============================================================================
+# 08  COMMUNITIES (subsystems)
+# Groups of nodes linked more to each other than to the rest, found with the
+# Louvain method (modularity), in a fixed order so the same code always gives
+# the same groups. Each connected part is grouped on its own: modularity
+# blurs small groups in a big graph, and unconnected parts (like the
+# projects in a combined map) have nothing to do with each other.
+# =============================================================================
+@dataclass
+class Community:
+    """A subsystem: its number (0 = biggest), a name from its hubs, members and main file."""
+
+    id: int
+    name: str
+    members: list[str]
+    hub: str
+    file: str
+
+
+def communities(graph: Graph) -> list[Community]:
+    """The graph's communities of MIN_COMMUNITY+ nodes, biggest first."""
+    groups: dict[str, list[str]] = defaultdict(list)
+    adjacency = undirected(graph)
+    for part in connected_parts(adjacency):
+        for node_id, group in louvain({node: adjacency[node] for node in part}).items():
+            groups[group].append(node_id)
+    ranked = sorted((g for g in groups.values() if len(g) >= MIN_COMMUNITY), key=lambda g: (-len(g), min(g)))
+    return [describe_community(graph, i, sorted(members)) for i, members in enumerate(ranked)]
+
+
+def undirected(graph: Graph) -> dict[str, dict[str, float]]:
+    """{node: {neighbour: weight}} with every link counted once each way (all nodes, even unlinked)."""
+    adjacency: dict[str, dict[str, float]] = {node_id: {} for node_id in sorted(graph.nodes)}
+    for edge in graph.edges.values():
+        if edge.source in adjacency and edge.target in adjacency:
+            adjacency[edge.source][edge.target] = adjacency[edge.source].get(edge.target, 0) + 1
+            adjacency[edge.target][edge.source] = adjacency[edge.target].get(edge.source, 0) + 1
+    return adjacency
+
+
+def connected_parts(adjacency: dict[str, dict[str, float]]) -> list[list[str]]:
+    """The graph's connected parts (each sorted), in a fixed order."""
+    seen: set[str] = set()
+    parts = []
+    for start in adjacency:
+        if start in seen:
+            continue
+        seen.add(start)
+        part, queue = [], deque([start])
+        while queue:
+            node = queue.popleft()
+            part.append(node)
+            fresh = [n for n in adjacency[node] if n not in seen]
+            seen.update(fresh)
+            queue.extend(fresh)
+        parts.append(sorted(part))
+    return parts
+
+
+def louvain(adjacency: dict[str, dict[str, float]]) -> dict[str, str]:
+    """{node: community}: move nodes between groups, merge groups into nodes, repeat until stable."""
+    membership = {node: node for node in adjacency}
+    while True:
+        moved = louvain_level(adjacency)
+        membership = {node: moved[group] for node, group in membership.items()}
+        if len(set(moved.values())) == len(adjacency):
+            return membership
+        adjacency = aggregate(adjacency, moved)
+
+
+def louvain_level(adjacency: dict[str, dict[str, float]]) -> dict[str, str]:
+    """One level: each node joins the neighbouring group that raises modularity most, until none moves."""
+    degree = {node: sum(links.values()) for node, links in adjacency.items()}
+    total = sum(degree.values()) or 1
+    group = {node: node for node in adjacency}
+    group_degree = dict(degree)
+    for _ in range(MAX_PASSES):
+        moves = sum(move_node(node, adjacency, degree, total, group, group_degree) for node in adjacency)
+        if not moves:
+            break
+    return group
+
+
+def move_node(node, adjacency, degree, total, group, group_degree) -> int:
+    """Put one node in its best group; 1 if it moved, else 0."""
+    weight_to: dict[str, float] = defaultdict(float)
+    for neighbour, weight in adjacency[node].items():
+        if neighbour != node:
+            weight_to[group[neighbour]] += weight
+    current = group[node]
+    group_degree[current] -= degree[node]
+    best, best_gain = current, weight_to.get(current, 0) - group_degree[current] * degree[node] / total
+    for candidate in sorted(weight_to):
+        gain = weight_to[candidate] - group_degree[candidate] * degree[node] / total
+        if gain > best_gain + 1e-12:
+            best, best_gain = candidate, gain
+    group_degree[best] += degree[node]
+    group[node] = best
+    return int(best != current)
+
+
+def aggregate(adjacency: dict[str, dict[str, float]], group: dict[str, str]) -> dict[str, dict[str, float]]:
+    """A smaller graph with one node per group (links inside a group become a self-link)."""
+    merged: dict[str, dict[str, float]] = {g: {} for g in sorted(set(group.values()))}
+    for node, links in adjacency.items():
+        for neighbour, weight in links.items():
+            a, b = group[node], group[neighbour]
+            merged[a][b] = merged[a].get(b, 0) + weight
+    return merged
+
+
+def describe_community(graph: Graph, number: int, members: list[str]) -> Community:
+    """Name a community "app.js — el · campDetail": its main file, then its two most-linked
+    functions/classes (or, for a group of ids and CSS classes, its most-linked members)."""
+    links = Counter()
+    for edge in graph.edges.values():
+        links[edge.source] += 1
+        links[edge.target] += 1
+    code = [m for m in members if graph.nodes[m].type in ("function", "class")]
+    named = code or [m for m in members if graph.nodes[m].type != "file"] or members
+    ranked = sorted(named, key=lambda m: (-links[m], m))
+    files = Counter(graph.nodes[m].file for m in members if graph.nodes[m].file)
+    main_file = min(files, key=lambda f: (-files[f], f)) if files else ""
+    top = " · ".join(graph.nodes[m].name for m in ranked[:2])
+    parts = main_file.split("/")
+    short = f"{parts[0]}/{parts[-1]}" if graph.projects and len(parts) > 1 else parts[-1]  # combined: say which project
+    name = f"{short} — {top}" if main_file else top
+    return Community(number, name, members, ranked[0], main_file)

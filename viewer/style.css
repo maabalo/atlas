@@ -496,16 +496,41 @@ kbd {
 /* ==========================================================================
    06  MAP (SVG)
    ========================================================================== */
+
+/* The map is a galaxy in both themes: deep space, stars, faint nebulae and glowing dots.
+   Its own colour tokens keep text and controls readable on the dark sky (WCAG AA). */
 .map {
+  --bg: #05060d;
+  --surface: #0b0f1a;
+  --subtle: #121828;
+  --hover: #1a2236;
+  --border: #232c42;
+  --border-strong: #33405e;
+  --text: #e6edf3;
+  --muted: #a3adb8;
+  --faint: #8b95a1;
+  --accent: #3ddc97;
+  --on-accent: #04140d;
+  --node-file: #3ddc97;
+  --node-function: #7cb8ff;
+  --node-class: #b9a2ff;
+  --node-id: #ffb547;
+  --node-css: #ff8ccf;
+  --edge: #5a6b93;
+  --community-none: #6b7487;
+
   position: relative;
   order: -1; /* phones: map first, before the sidebar (reset at ≥1000px) */
   min-width: 0;
   height: 62vh;
   height: 62dvh;
   min-height: 320px;
+  color: var(--text);
   background:
-    radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 22px 22px,
-    var(--bg);
+    radial-gradient(ellipse 60% 45% at 28% 38%, rgb(96 64 176 / 30%), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 74% 68%, rgb(24 96 160 / 28%), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 60% 20%, rgb(176 64 128 / 16%), transparent 70%), var(--bg);
+  color-scheme: dark;
 }
 
 .graph {
@@ -524,11 +549,27 @@ kbd {
   outline-offset: -3px;
 }
 
+/* Background stars (app.js scatters them): cool white, a few warm */
+.star {
+  fill: #dfe8ff;
+  pointer-events: none;
+}
+
+.star--warm {
+  fill: #ffe2c4;
+}
+
+/* Stars: every dot glows in its own colour */
+.node-layer {
+  filter: url('#glow');
+}
+
+/* Links are faint light trails between the stars */
 .edge {
   fill: none;
   stroke: var(--edge);
-  stroke-width: 1.2;
-  opacity: 0.55;
+  stroke-width: 1;
+  opacity: 0.4;
 }
 
 .edge--uses,
@@ -589,6 +630,28 @@ kbd {
   pointer-events: none;
 }
 
+/* Community colours (app.js sets --community on each dot): shapes still tell the types apart */
+.graph.by-community .node {
+  fill: var(--community);
+}
+
+.graph.by-community .node--css-class {
+  fill: var(--surface);
+  stroke: var(--community);
+}
+
+/* Combined maps: each project's name over its island */
+.label--project {
+  fill: var(--accent);
+  font-size: calc(18px / var(--zoom, 1));
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.label--project[hidden] {
+  display: none;
+}
+
 /* While something is selected, everything unrelated fades */
 .graph.has-focus .node,
 .graph.has-focus .edge,
@@ -616,6 +679,17 @@ kbd {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+/* The 2D/3D switch: text, not an icon; filled while 3D is on */
+.depth-btn {
+  font: 700 12px/1 var(--font-mono);
+}
+
+.depth-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .map-hint {
@@ -881,4 +955,13 @@ kbd {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* A community's colour, in lists */
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--community);
 }

@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,6 +24,7 @@ sys.path.insert(0, str(ATLAS_DIR))
 import atlas  # noqa: E402
 import atlas_export  # noqa: E402
 import atlas_graph as ag  # noqa: E402
+import atlas_mcp  # noqa: E402
 import atlas_scan as scan  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixture"
@@ -199,6 +201,136 @@ class ScanTest(unittest.TestCase):
             graph = ag.build_graph(Path(tmp))
         self.assertNotIn("file:node_modules/lib.js", graph.nodes)
         self.assertIn(("file:pkg/a.py", "fn:pkg/b.py::helper", "calls"), graph.edges)
+
+
+class CombinedTest(unittest.TestCase):
+    """Several projects in one map: each keeps its own names, and they never link to each other."""
+
+    @classmethod
+    def setUpClass(cls):
+        with tempfile.TemporaryDirectory() as other:
+            Path(other, "index.html").write_text('<p id="greeting" class="card"></p><script src="app.js"></script>')
+            Path(other, "app.js").write_text("function init() {}\ninit();\n")
+            cls.other_name = Path(other).name
+            cls.graph = ag.merge_graphs([ag.build_graph(FIXTURE), ag.build_graph(Path(other))], "both")
+
+    def test_ids_and_paths_start_with_the_project(self):
+        self.assertEqual(self.graph.projects, ["fixture", self.other_name])
+        self.assertIn(f"file:{self.other_name}/app.js", self.graph.nodes)
+        self.assertIn(f"fn:{self.other_name}/app.js::init", self.graph.nodes)
+        self.assertEqual(self.graph.nodes[f"file:{self.other_name}/app.js"].name, f"{self.other_name}/app.js")
+
+    def test_projects_never_link_to_each_other(self):
+        for edge in self.graph.edges.values():
+            source_project = edge.source.partition(":")[2].split("/")[0]
+            self.assertEqual(source_project, edge.target.partition(":")[2].split("/")[0], edge)
+
+    def test_health_still_works_per_project(self):
+        missing = [n.id for n in ag.health(self.graph)["missing_ids"]]
+        self.assertTrue(all(i.startswith("id:fixture/") for i in missing), missing)
+
+    def test_cli_refuses_two_projects_with_the_same_name(self):
+        code, _out, err = run_cli("build", str(FIXTURE), str(FIXTURE), "--out", tempfile.gettempdir())
+        self.assertEqual(code, atlas.EXIT_ERROR)
+        self.assertIn("share a folder name", err)
+
+
+class CommunityTest(unittest.TestCase):
+    """Louvain communities: two tight groups joined by one link split in two, the same way every time."""
+
+    @staticmethod
+    def two_triangles() -> ag.Graph:
+        graph = ag.Graph(root="t")
+        for name in "abcxyz":
+            graph.add_node(ag.Node(f"fn:t.js::{name}", "function", name, "t.js", 1, "javascript"))
+        pairs = ["ab", "bc", "ca", "xy", "yz", "zx", "cx"]  # two triangles, one bridge
+        for a, b in pairs:
+            graph.add_edge(f"fn:t.js::{a}", f"fn:t.js::{b}", "calls", ag.CERTAIN)
+        return graph
+
+    def test_two_tight_groups_become_two_communities(self):
+        found = ag.communities(self.two_triangles())
+        groups = sorted("".join(sorted(m[-1] for m in c.members)) for c in found)
+        self.assertEqual(groups, ["abc", "xyz"])
+
+    def test_same_graph_same_communities(self):
+        first = [c.members for c in ag.communities(ag.build_graph(FIXTURE))]
+        self.assertEqual(first, [c.members for c in ag.communities(ag.build_graph(FIXTURE))])
+
+    def test_names_start_with_the_main_file(self):
+        for community in ag.communities(ag.build_graph(FIXTURE)):
+            self.assertTrue(community.name.startswith(community.file.rsplit("/", 1)[-1]), community.name)
+
+    def test_cli_and_json_list_them(self):
+        code, out, _err = run_cli("communities", str(FIXTURE))
+        self.assertEqual(code, atlas.EXIT_OK)
+        self.assertIn("members", out)
+        data = atlas_export.graph_to_dict(ag.build_graph(FIXTURE))
+        self.assertTrue(data["meta"]["communities"])
+        self.assertTrue(all("community" in node for node in data["nodes"]))
+
+
+class McpTest(unittest.TestCase):
+    """The MCP server: handshake, tool list, answers, and refusals (outside folders, bad input)."""
+
+    ROOTS = [FIXTURE.parent.resolve()]
+
+    def call(self, name: str, arguments: object) -> dict:
+        message = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        return atlas_mcp.handle(message, self.ROOTS)["result"]
+
+    def test_initialize_and_tool_list(self):
+        hello = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}
+        self.assertEqual(atlas_mcp.handle(hello, self.ROOTS)["result"]["protocolVersion"], "2024-11-05")
+        listing = atlas_mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, self.ROOTS)
+        self.assertIn("atlas_explain", [t["name"] for t in listing["result"]["tools"]])
+        self.assertIsNone(atlas_mcp.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}, self.ROOTS))
+
+    def test_tools_answer_like_the_command_line(self):
+        result = self.call("atlas_uses", {"project": "fixture", "name": "shout"})
+        self.assertFalse(result["isError"])
+        self.assertIn("greet", result["content"][0]["text"])
+        self.assertFalse(self.call("atlas_overview", {"project": str(FIXTURE)})["isError"])
+
+    def test_folders_outside_the_roots_are_refused(self):
+        for project in ("/etc", "../..", "fixture/../../.."):
+            result = self.call("atlas_check", {"project": project})
+            self.assertTrue(result["isError"], project)
+            self.assertIn("outside", result["content"][0]["text"])
+
+    def test_bad_arguments_are_errors_not_crashes(self):
+        bad = [
+            ("atlas_hubs", {"project": "fixture", "limit": 0}),
+            ("atlas_hubs", {"project": "fixture", "limit": True}),
+            ("atlas_explain", {"project": "fixture"}),
+            ("atlas_explain", {"project": "fixture", "name": "x" * 400}),
+            ("atlas_check", {"project": "fixture", "extra": 1}),
+            ("atlas_nope", {"project": "fixture"}),
+            ("atlas_check", "not an object"),
+        ]
+        for name, arguments in bad:
+            self.assertTrue(self.call(name, arguments)["isError"], (name, arguments))
+
+    def test_unknown_method_and_bad_json(self):
+        reply = atlas_mcp.handle({"jsonrpc": "2.0", "id": 3, "method": "resources/list"}, self.ROOTS)
+        self.assertEqual(reply["error"]["code"], atlas_mcp.METHOD_NOT_FOUND)
+        out = io.StringIO()
+        atlas_mcp.serve(["not json\n"], self.ROOTS, out)
+        self.assertEqual(json.loads(out.getvalue())["error"]["code"], atlas_mcp.PARSE_ERROR)
+
+    def test_a_real_session_over_stdio(self):
+        lines = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+             "params": {"name": "atlas_hubs", "arguments": {"project": "fixture", "limit": 3}}},
+        ]  # fmt: skip
+        stdin = "".join(json.dumps(line) + "\n" for line in lines)
+        command = [sys.executable, str(ATLAS_DIR / "atlas_mcp.py"), "--root", str(FIXTURE.parent)]
+        done = subprocess.run(command, input=stdin, capture_output=True, text=True, timeout=30, check=True)
+        replies = [json.loads(line) for line in done.stdout.splitlines()]
+        self.assertEqual([r["id"] for r in replies], [1, 2])
+        self.assertIn("links", replies[1]["result"]["content"][0]["text"])
 
 
 class ExportTest(unittest.TestCase):
