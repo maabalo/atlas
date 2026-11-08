@@ -8,7 +8,7 @@ Ask it a question in the Terminal, or open the interactive map in your browser.
 - **To find dead code:** `check` lists functions nothing calls, CSS nothing uses, and ids that don't exist.
 - **To learn a codebase:** `hubs` shows the most-connected functions, and the map shows the shape of the whole thing.
 
-It's private and has nothing to install: it uses only Python's standard library (Python 3.9+), makes no network calls, and **never writes into your project**. Maps are saved in Atlas's own `maps/` folder.
+It's private and has nothing to install: it uses only Python's standard library (Python 3.9+), makes no network calls while mapping (the map page only loads two web fonts from Google, and uses built-in fonts offline), and **never writes into your project**. Maps are saved in Atlas's own `maps/` folder.
 
 ```
 $ python3 atlas.py uses ~/projects/qr-generator renderCode
@@ -99,9 +99,9 @@ Each type of thing is its own **kind of star** as well as its own colour:
 - **Communities:** the overview lists the biggest; click one to fit the map to it. Tick **community colours** to colour the dots by community (their shapes still show their type). Selecting a dot shows its community too.
 - **Islands:** on a combined map, the left panel counts the folders pulled in. Untick one to hide it, or click its name to fly to it.
 - **Labels** are hidden at first, to keep the map calm. Tick **labels** to show file, hub and project names. The selected shape and its neighbours are always named, and pointing at a dot shows its name.
-- **Click a shape**, or **search** for it, to see everything that uses it and everything it uses. Click any row to jump there.
+- **Click a star**, or **search** for it, to see everything that uses it and everything it uses. Click any row to jump there.
 - **Drag** to move around. **Scroll** or use **+ / −** to zoom, and **⛶** to fit the whole map.
-- **3D (the default):** the map opens as a spiral galaxy, spread out in depth (where a star sits in the swirl is for looks; the lines show the real links), drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
+- **3D (the default):** the map opens as a spiral galaxy that turns very slowly by itself until you touch it or select a star, spread out in depth (where a star sits in the swirl is for looks; the lines show the real links), drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
 - **Keyboard:**
   - `/` search
   - `Esc` clear the selection

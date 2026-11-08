@@ -5,7 +5,8 @@
   --------------------------------------------------------------------------
   This is a TEMPLATE. `python3 atlas.py build PROJECT` copies it into
   maps/PROJECT/graph.html with style.css, app.js and the graph data inlined,
-  so the result is one file that opens from file:// with no internet.
+  so the result is one file that opens from file:// with no server (it only
+  fetches two web fonts, and uses built-in fonts offline).
   (The three placeholders below are replaced by atlas_export.py section 03.)
 
   LAYOUT MAP
@@ -23,6 +24,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Atlas — code map</title>
     <meta name="color-scheme" content="light dark" />
+    <meta id="themeColor" name="theme-color" content="#0b0f1a" />
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a7a52'/%3E%3Cg stroke='%23fff' stroke-width='2'%3E%3Cpath d='M9 10l13 4M9 10l4 13M22 14l-9 9'/%3E%3C/g%3E%3Cg fill='%23fff'%3E%3Ccircle cx='9' cy='10' r='3'/%3E%3Ccircle cx='22' cy='14' r='3'/%3E%3Ccircle cx='13' cy='23' r='3'/%3E%3C/g%3E%3C/svg%3E"
@@ -222,6 +224,9 @@
             <g id="labelLayer"></g>
           </g>
         </svg>
+        <p id="mapEmpty" class="map-empty" hidden>
+          Nothing shown. Tick an island or a type to bring the stars back.
+        </p>
         <div class="map-controls" role="group" aria-label="View">
           <button
             id="depthBtn"
@@ -243,7 +248,7 @@
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit" /></svg>
           </button>
         </div>
-        <p id="mapHint" class="map-hint">drag to turn · shift+drag to pan · scroll to zoom · click a dot</p>
+        <p id="mapHint" class="map-hint">drag to turn · shift+drag to pan · scroll to zoom · click a star</p>
       </section>
 
       <!-- ===================== 4. DETAILS ===================== -->
@@ -301,7 +306,7 @@
             <dt>labels</dt>
             <dd>
               Names are hidden at first, to keep the map calm: tick <strong>labels</strong> to show file, hub
-              and project names. The selected shape and its neighbours are always named, and pointing at a dot
+              and project names. The selected star and its neighbours are always named, and pointing at a star
               shows its name.
             </dd>
           </div>
@@ -309,7 +314,7 @@
             <dt>communities</dt>
             <dd>
               Groups of code linked mostly to each other (subsystems). Tick
-              <strong>community colours</strong> to colour the dots by group; the overview lists the biggest,
+              <strong>community colours</strong> to colour the stars by group; the overview lists the biggest,
               and clicking one fits the map to it.
             </dd>
           </div>
@@ -335,11 +340,11 @@
         </p>
         <h3 class="help-heading">3D</h3>
         <p class="help-lead">
-          The map opens in 3D, shaped like a spiral galaxy (the swirl is for looks; the lines show the real
-          links): drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or <kbd>Shift</kbd> + arrows
-          pan. It spins freely in every direction, around whatever is in the middle of the screen, and the
-          clouds and stars turn with it. Nearer stars are drawn bigger. The <strong>3D</strong> button (top of
-          the map's corner buttons) switches to the flat map and back.
+          The map opens in 3D, shaped like a slowly turning spiral galaxy (the swirl is for looks; the lines
+          show the real links): drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or
+          <kbd>Shift</kbd> + arrows pan. It spins freely in every direction, around whatever is in the middle
+          of the screen, and the clouds and stars turn with it. Nearer stars are drawn bigger. The
+          <strong>3D</strong> button (top of the map's corner buttons) switches to the flat map and back.
         </p>
       </div>
       <div class="dialog-foot">

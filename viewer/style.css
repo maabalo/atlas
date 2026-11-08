@@ -137,6 +137,15 @@ button {
   cursor: pointer;
 }
 
+/* Taps respond at once, with a soft flash in the accent colour */
+a,
+button,
+label,
+input {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgb(61 220 151 / 20%);
+}
+
 .icon {
   flex-shrink: 0;
   width: 18px;
@@ -210,8 +219,9 @@ kbd {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 52px;
-  padding: 0 var(--gutter);
+  height: calc(52px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) max(var(--gutter), env(safe-area-inset-right)) 0
+    max(var(--gutter), env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -293,6 +303,10 @@ kbd {
   color: var(--on-accent);
 }
 
+.btn:hover {
+  filter: brightness(1.12);
+}
+
 /* ==========================================================================
    04  LAYOUT — phones: map first (so it's on screen), then sidebar, then details
    ========================================================================== */
@@ -311,7 +325,8 @@ kbd {
   align-content: start;
   gap: 14px;
   min-width: 0;
-  padding: 14px var(--gutter);
+  padding: 14px max(var(--gutter), env(safe-area-inset-right)) 14px
+    max(var(--gutter), env(safe-area-inset-left));
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -455,8 +470,23 @@ kbd {
   cursor: pointer;
 }
 
+.panel-action:hover {
+  color: var(--text);
+}
+
 .island-row {
   cursor: default;
+}
+
+/* The checkbox's tap area: 36 px around a 16 px box, without moving it */
+.island-box {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  min-height: 36px;
+  margin: 0 -10px;
+  cursor: pointer;
 }
 
 .island-name {
@@ -765,8 +795,8 @@ kbd {
 
 .map-controls {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(10px + env(safe-area-inset-bottom));
   display: grid;
   gap: 4px;
   padding: 4px;
@@ -787,10 +817,23 @@ kbd {
   color: var(--bg);
 }
 
+/* Shown when every island or type is switched off */
+.map-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(280px, 80%);
+  margin: 0;
+  color: var(--muted);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 .map-hint {
   position: absolute;
-  bottom: 10px;
-  left: 12px;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: calc(12px + env(safe-area-inset-left));
   margin: 0;
   color: var(--faint);
   font: 11.5px var(--font-mono);
@@ -802,7 +845,8 @@ kbd {
    ========================================================================== */
 .details {
   min-width: 0;
-  padding: 16px var(--gutter) 32px;
+  padding: 16px max(var(--gutter), env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
@@ -913,6 +957,11 @@ kbd {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
+}
+
+.dialog,
+.dialog-body {
+  overscroll-behavior: contain; /* scrolling past the end doesn't move the page behind */
 }
 
 .dialog::backdrop {
@@ -1036,6 +1085,16 @@ kbd {
   .help-defs > div {
     grid-template-columns: 150px 1fr;
     gap: 16px;
+  }
+}
+
+/* Fingers need more room than a mouse pointer */
+@media (pointer: coarse) {
+  .check,
+  .island-box,
+  .island-name,
+  .panel-action {
+    min-height: 44px;
   }
 }
 

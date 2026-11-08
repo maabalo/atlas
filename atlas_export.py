@@ -4,7 +4,7 @@ Atlas — atlas_export.py: write the graph out.
   graph.json       the full graph (nodes + edges) for other tools
   GRAPH_REPORT.md  a readable summary: counts, files, hubs, health checks
   graph.html       one self-contained interactive page (opens from file://,
-                   no internet needed): viewer/index.html with style.css,
+                   no server needed): viewer/index.html with style.css,
                    app.js and the graph data inlined
 
 TABLE OF CONTENTS

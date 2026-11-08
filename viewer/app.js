@@ -121,10 +121,15 @@
   const TURN_STEP = 0.15; // radians per arrow key
   const GLIDE_DECAY = 0.94; // after letting go, the spin keeps this share of its speed each frame
   const GLIDE_STOP = 0.0004; // radians per frame: slow enough to stop
+  const IDLE_SPEED = 0.012; // radians per second the galaxy turns by itself: about 9 minutes per turn
+  const IDLE_FRAME_MS = 66; // redraw about 15 times a second: plenty at this speed, and easy on the computer
+  const IDLE_RESUME_MS = 1500; // wait this long after the last touch before drifting again
+  const IDLE_SORT_MS = 4000; // how often to re-layer the stars while drifting
+  const LESS_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
   const GLIDE_RECENT_MS = 80; // only glide if the pointer was still moving when it let go
   const HINTS = {
-    '2d': 'drag to pan · scroll or +/− to zoom · click a dot',
-    '3d': 'drag to turn · shift+drag to pan · scroll to zoom · click a dot',
+    '2d': 'drag to pan · scroll or +/− to zoom · click a star',
+    '3d': 'drag to turn · shift+drag to pan · scroll to zoom · click a star',
   };
   /** Arrow key → direction the map content moves (x, y). */
   const PAN_KEYS = { ArrowLeft: [1, 0], ArrowRight: [-1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
@@ -250,6 +255,8 @@
     islandList: byId('islandList'),
     islandToggle: byId('islandToggle'),
     nebulaLayer: byId('nebulaLayer'),
+    mapEmpty: byId('mapEmpty'),
+    themeColor: byId('themeColor'),
     inferredToggle: byId('inferredToggle'),
     labelsToggle: byId('labelsToggle'),
     communityToggle: byId('communityToggle'),
@@ -320,7 +327,9 @@
     galaxyRadius: 0, // 3D: the size the swirl is measured against (set once, so hiding things doesn't reshape it)
     pivot: { x: 0, y: 0, z: 0 }, // 3D: the point the galaxy turns around, always at the middle of the screen
     glide: null, // 3D: the spin still coasting after letting go
+    idle: { last: 0, sorted: 0, active: false, pausedUntil: 0 }, // 3D: the slow turn when nothing is touching it
     sky: [], // background stars: {dot, x, y (% for 2D), dir (direction in 3D)}
+    box: { width: 0, height: 0 }, // the map's size on screen, measured when it changes (not every frame)
     screen: new Map(), // node id → where it's drawn now: {x, y, s (size), depth}
     frame: 0, // a pending requestAnimationFrame (3D turning)
     switched: false, // during the layout right after a 2D/3D switch
@@ -496,6 +505,7 @@
     drawNodes(nodes);
     drawLabels();
     place();
+    els.mapEmpty.hidden = nodes.length > 0;
     if (state.selected && !shown.has(state.selected)) state.selected = null;
     highlight();
   }
@@ -536,7 +546,7 @@
   /** Fit the map to one community's shown members and say so. */
   function showCommunity(group) {
     const ids = DATA.nodes.filter((node) => node.community === group.id && state.screen.has(node.id));
-    if (!ids.length) return announce(`${group.name} has no shapes shown. Tick more types under show.`);
+    if (!ids.length) return announce(`${group.name} has no stars shown. Tick more types under show.`);
     fit(ids.map((node) => node.id));
     announce(`Community ${group.name}: ${group.size} members.`);
   }
@@ -606,7 +616,7 @@
 
   /** Put the stars where they are now. 3D: only the sky beyond the galaxy shows, and it turns with it. */
   function placeStars() {
-    const box = els.graph.getBoundingClientRect();
+    const { box } = state;
     const reach = Math.hypot(box.width, box.height) * SKY_REACH;
     state.sky.forEach((star, i) => {
       if (state.mode !== '3d') return placeFlatStar(star, i);
@@ -829,7 +839,12 @@
     placeClouds();
     placeDust();
     placeStars();
-    if (state.mode === '3d') sortByDepth();
+    if (state.mode === '3d' && !isSpinning()) sortByDepth();
+  }
+
+  /** Whether the galaxy is turning right now: the stars are re-layered once it stops, to keep spinning smooth. */
+  function isSpinning() {
+    return Boolean(state.idle.active || state.glide || (state.drag && state.drag.moved));
   }
 
   /** Move each puff of cloud to where it's drawn now (nearer ones look bigger, like the stars). */
@@ -889,6 +904,7 @@
       and has no end stop in any direction. */
   function turnBy(yaw, tilt) {
     state.camera.rotation = straightened(multiply(turnMatrix(yaw, tilt), state.camera.rotation));
+    pauseDrift();
     placeSoon();
   }
 
@@ -901,7 +917,38 @@
       y: state.pivot.y - (r[1] * dx + r[4] * dy) / k,
       z: state.pivot.z - (r[2] * dx + r[5] * dy) / k,
     };
+    pauseDrift();
     placeSoon();
+  }
+
+  /** Someone is moving the galaxy: hold the slow turn for a moment. */
+  function pauseDrift() {
+    state.idle.pausedUntil = performance.now() + IDLE_RESUME_MS;
+  }
+
+  /** Whether the galaxy may turn by itself now (not while it's held, or a star is being read). */
+  function canDrift(time) {
+    const held = state.drag || state.glide || state.selected;
+    return state.mode === '3d' && !held && !LESS_MOTION.matches && time >= state.idle.pausedUntil;
+  }
+
+  /** One step of the slow turn, around the galaxy's own axis (stops by itself in a hidden tab). */
+  function stepDrift(time) {
+    requestAnimationFrame(stepDrift);
+    const { idle } = state;
+    const elapsed = time - idle.last;
+    if (elapsed < IDLE_FRAME_MS) return;
+    idle.last = time;
+    if (!canDrift(time)) return;
+    const angle = (Math.min(elapsed, 200) / 1000) * IDLE_SPEED;
+    state.camera.rotation = straightened(multiply(state.camera.rotation, turnMatrix(angle, 0)));
+    idle.active = true;
+    place();
+    idle.active = false;
+    if (time - idle.sorted > IDLE_SORT_MS) {
+      idle.sorted = time;
+      sortByDepth();
+    }
   }
 
   /** Keep coasting after letting go, slowing down (not for people who asked for less motion). */
@@ -922,8 +969,34 @@
 
   /** Stop coasting (a new drag takes over). */
   function stopGlide() {
-    if (state.glide) cancelAnimationFrame(state.glide.frame);
+    const wasGliding = Boolean(state.glide);
+    if (wasGliding) cancelAnimationFrame(state.glide.frame);
     state.glide = null;
+    if (wasGliding && state.mode === '3d') sortByDepth();
+  }
+
+  /** Remember the map's size. */
+  function measureMap() {
+    const { width, height } = els.graph.getBoundingClientRect();
+    state.box = { width, height };
+  }
+
+  /** Keep the view centred when the window resizes or a phone rotates. */
+  function followMapSize() {
+    measureMap();
+    new ResizeObserver(() => {
+      const old = state.box;
+      measureMap();
+      if (old.width === state.box.width && old.height === state.box.height) return;
+      const { x, y, k } = state.view;
+      state.view = {
+        x: x + (state.box.width - old.width) / 2,
+        y: y + (state.box.height - old.height) / 2,
+        k,
+      };
+      applyView();
+      placeSoon();
+    }).observe(els.graph);
   }
 
   /** Apply state.view to the SVG. */
@@ -975,6 +1048,11 @@
 
   /** 3D: turn around the middle of these nodes from now on. */
   function pivotOn(ids) {
+    if (ids.length === state.drawn.nodes.size && !state.hiddenProjects.size) {
+      state.pivot = { x: 0, y: 0, z: 0 }; // the whole galaxy turns around its core
+      place();
+      return;
+    }
     const points = ids
       .map((id) => state.positions.get(id))
       .filter(Boolean)
@@ -1036,6 +1114,7 @@
     if (drag && !drag.moved && event.type === 'pointerup') select(drag.id);
     if (drag && drag.spin && event.timeStamp - drag.spin.at < GLIDE_RECENT_MS) startGlide(drag.spin);
     state.drag = null;
+    if (drag && drag.moved && !state.glide && state.mode === '3d') sortByDepth();
     els.graph.classList.remove('is-panning');
   }
 
@@ -1094,6 +1173,25 @@
     if (state.selected) {
       const node = nodeById.get(state.selected);
       announce(`Selected ${node.name}, ${node.type}`);
+    }
+    rememberSelection();
+  }
+
+  /** Put the selected star in the address, so the page can be reopened on it. */
+  function rememberSelection() {
+    if (!state.selected && !location.hash) return;
+    location.replace(`#star=${state.selected ? encodeURIComponent(state.selected) : ''}`);
+  }
+
+  /** Opened from an address with a star in it: go to that star. */
+  function openLinkedStar() {
+    const match = /^#star=(.+)$/.exec(location.hash);
+    if (!match) return;
+    try {
+      const id = decodeURIComponent(match[1]);
+      if (nodeById.has(id)) goTo(id);
+    } catch {
+      // A damaged address: just open the map
     }
   }
 
@@ -1227,7 +1325,7 @@
     hubs.forEach((node) => hubList.append(nodeRow(node.id, `${degree.get(node.id) || 0} links`)));
     const hubGroup = el('section', 'link-group');
     hubGroup.append(el('h3', '', 'hubs: most connected'), hubList);
-    const hint = el('p', 'empty-note', 'Click a shape, or search, to see what uses it and what it uses.');
+    const hint = el('p', 'empty-note', 'Click a star, or search, to see what uses it and what it uses.');
     return [stats, hubGroup, ...communityGroup(), hint];
   }
 
@@ -1376,15 +1474,17 @@
   function islandRow(project) {
     const files = DATA.nodes.filter((node) => node.type === 'file' && projectOf(node) === project).length;
     const row = el('div', 'check island-row');
+    const hit = el('label', 'island-box'); // a bigger area to tap than the box itself
     const box = el('input', 'check-input');
     box.type = 'checkbox';
     box.value = project;
+    hit.append(box);
     box.setAttribute('aria-label', `Show ${project}`);
     const name = el('button', 'island-name', project);
     name.type = 'button';
     name.title = `Fly to ${project}`;
     name.dataset.project = project;
-    row.append(box, name, el('span', 'check-count', `${files} ${files === 1 ? 'file' : 'files'}`));
+    row.append(hit, name, el('span', 'check-count', `${files} ${files === 1 ? 'file' : 'files'}`));
     return row;
   }
 
@@ -1449,6 +1549,8 @@
     icon.append(svgEl('use', { href: `#i-theme-${theme}` }));
     els.themeBtn.replaceChildren(icon);
     els.themeBtn.setAttribute('aria-label', `Theme: ${theme}. Switch to ${next}`);
+    const bar = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+    els.themeColor.setAttribute('content', bar); // the phone browser's bar matches the page
   }
 
   /** Theme button: next theme, remembered when storage is available. */
@@ -1548,6 +1650,9 @@
       if (event.target === els.helpDialog || event.target.closest('[data-close]')) els.helpDialog.close();
     });
     els.themeBtn.addEventListener('click', cycleTheme);
+    window
+      .matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener('change', () => applyTheme(state.theme));
     document.addEventListener('keydown', handleShortcuts);
   }
 
@@ -1562,11 +1667,14 @@
     bindEvents();
     drawStars();
     showMode();
+    followMapSize();
     redraw();
     drawNebulae(); // sized to the galaxy, so after the first layout
     fit();
     renderDetails();
     renderHealth();
+    openLinkedStar();
+    requestAnimationFrame(stepDrift);
   }
 
   init();
