@@ -17,4 +17,9 @@ export default [
       curly: ['error', 'multi-line'],
     },
   },
+  {
+    // core.js also loads in Node for its tests (module.exports)
+    files: ['viewer/core.js'],
+    languageOptions: { globals: { ...globals.browser, module: 'readonly' } },
+  },
 ];

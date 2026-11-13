@@ -1,17 +1,17 @@
 /* ==========================================================================
    Atlas — style.css (viewer)
    --------------------------------------------------------------------------
-   Mobile-first: on phones the map comes first, then search/filters, then the details.
-   From 1000px: sidebar | map | details side by side (section 09).
-   Node colors are tokens too (--node-*): each type also has its own SHAPE,
-   so color is never the only difference.
+   Mobile-first: on phones the map comes first, then the panel (when open).
+   From 1000px: map | panel side by side (section 09).
+   The map itself is a canvas painted by app.js; its dust colours (by language)
+   live there. Pointing at a speck names it, so colour is never the only clue.
 
    TABLE OF CONTENTS
      01  Design tokens (light + dark)
      02  Base & accessibility helpers
      03  Top bar & buttons
      04  Layout
-     05  Sidebar: search, results, filters, legend, health
+     05  Panel contents: search, results, folder tree, health
      06  Map (SVG)
      07  Details panel
      08  Dialog
@@ -35,12 +35,6 @@
   --accent: #0a7a52;
   --on-accent: #fff;
   --warn: #8a5a00;
-  --node-file: #9a5b00;
-  --node-function: #8a6a00;
-  --node-class: #4a6a9c;
-  --node-id: #b4541a;
-  --node-css: #9c5f33;
-  --edge: #8a96a3;
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius: 10px;
@@ -65,12 +59,6 @@
   --accent: #3ddc97;
   --on-accent: #04140d;
   --warn: #f0b429;
-  --node-file: #ffcf70;
-  --node-function: #fff0c4;
-  --node-class: #dfe8ff;
-  --node-id: #ffb27a;
-  --node-css: #ffe2c4;
-  --edge: #5b6672;
   --shadow: 0 12px 40px rgb(0 0 0 / 50%);
 
   color-scheme: dark;
@@ -90,12 +78,6 @@
     --accent: #3ddc97;
     --on-accent: #04140d;
     --warn: #f0b429;
-    --node-file: #ffcf70;
-    --node-function: #fff0c4;
-    --node-class: #dfe8ff;
-    --node-id: #ffb27a;
-    --node-css: #ffe2c4;
-    --edge: #5b6672;
     --shadow: 0 12px 40px rgb(0 0 0 / 50%);
 
     color-scheme: dark;
@@ -264,8 +246,74 @@ kbd {
 
 .topbar-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
   margin-left: auto;
+}
+
+/* Narrow phones: everything in the top bar must fit (the project name is in the tab title anyway) */
+@media (width < 480px) {
+  .brand,
+  .project-name {
+    display: none;
+  }
+
+  .topbar-actions {
+    gap: 2px;
+  }
+
+  .topbar .icon-btn {
+    width: 40px;
+  }
+
+  .view-btn {
+    padding: 0 8px;
+  }
+}
+
+/* The smallest phones (320px wide) */
+@media (width < 360px) {
+  .topbar .icon-btn {
+    width: 34px;
+  }
+
+  .view-btn {
+    padding: 0 6px;
+  }
+}
+
+/* The panel button's icon points right: the panel opens on the right */
+.icon--flip {
+  transform: scaleX(-1);
+}
+
+/* Globe | web switch */
+.view-switch {
+  display: inline-flex;
+  margin-right: 4px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.view-btn {
+  min-height: calc(var(--control) - 6px);
+  padding: 0 10px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: none;
+  color: var(--muted);
+  font: 500 12px var(--font-mono);
+  cursor: pointer;
+}
+
+.view-btn:hover {
+  color: var(--text);
+}
+
+.view-btn[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .icon-btn {
@@ -283,6 +331,13 @@ kbd {
 .icon-btn:hover {
   background: var(--hover);
   color: var(--text);
+}
+
+/* A panel button stays highlighted while its panel is open */
+.icon-btn[aria-pressed='true'],
+.icon-btn[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .btn {
@@ -308,7 +363,7 @@ kbd {
 }
 
 /* ==========================================================================
-   04  LAYOUT — phones: map first (so it's on screen), then sidebar, then details
+   04  LAYOUT — phones: map first (so it's on screen), then the panel
    ========================================================================== */
 .layout {
   display: grid;
@@ -318,21 +373,11 @@ kbd {
 }
 
 /* ==========================================================================
-   05  SIDEBAR: SEARCH, RESULTS, FILTERS, LEGEND, HEALTH
+   05  PANEL CONTENTS: SEARCH, RESULTS, FOLDERS, HEALTH (all in the right panel)
    ========================================================================== */
-.sidebar {
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  min-width: 0;
-  padding: 14px max(var(--gutter), env(safe-area-inset-right)) 14px
-    max(var(--gutter), env(safe-area-inset-left));
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
 .search {
   position: relative;
+  margin-bottom: 8px; /* search results sit just under the box */
 }
 
 .search-icon {
@@ -419,139 +464,65 @@ kbd {
   text-transform: uppercase;
 }
 
-.filters {
+/* The folder tree: each folder folds open to show the files inside it */
+.tree {
   display: grid;
   gap: 2px;
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 36px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.check-input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.check-count {
-  margin-left: auto;
-  color: var(--faint);
-  font: 12px var(--font-mono);
-}
-
-/* The Islands panel: a heading with a small action, and rows whose name is a button */
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.panel-head .panel-title {
-  margin: 0;
-}
-
-.panel-action {
-  flex-shrink: 0;
-  min-height: 36px;
-  padding: 0 4px;
-  border: 0;
-  color: var(--muted);
-  background: none;
-  font: 12px var(--font-mono);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.panel-action:hover {
-  color: var(--text);
-}
-
-.island-row {
-  cursor: default;
-}
-
-/* The checkbox's tap area: 36 px around a 16 px box, without moving it */
-.island-box {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 36px;
-  min-height: 36px;
-  margin: 0 -10px;
-  cursor: pointer;
-}
-
-.island-name {
-  overflow: hidden;
   min-width: 0;
+}
+
+.tree-list {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 2px 10px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+
+.tree-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-height: 36px;
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: none;
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  list-style: none;
   cursor: pointer;
 }
 
-.island-name:hover {
-  color: var(--text);
-  text-decoration: underline;
+.tree-summary::-webkit-details-marker {
+  display: none;
 }
 
-.island-row .check-count {
+/* A small arrow before each folder, turned down while it's open */
+.tree-summary::before {
+  content: '▸';
   flex-shrink: 0;
+  width: 10px;
+  color: var(--faint);
+  font-size: 11px;
+  transition: transform 0.15s;
 }
 
-/* Small SVG of each kind of star, used in filters, lists and details */
+.tree-folder[open] > .tree-summary::before {
+  transform: rotate(90deg);
+}
+
+.tree-summary:hover {
+  background: var(--hover);
+}
+
+.tree-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A small dot in a node's colour, used in the folder tree, search and health lists */
 .shape {
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-}
-
-.legend {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  color: var(--muted);
-  font-size: 13px;
-  list-style: none;
-}
-
-.legend li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.line {
-  width: 28px;
-  border-top: 2px solid var(--edge);
-}
-
-.line--uses {
-  border-top-style: dashed;
-}
-
-.line--imports {
-  border-top-width: 3px;
-  border-top-color: var(--text);
-}
-
-.line--styles {
-  border-top-style: dotted;
 }
 
 .health {
@@ -576,7 +547,7 @@ kbd {
 }
 
 /* ==========================================================================
-   06  MAP (SVG)
+   06  MAP (canvas)
    ========================================================================== */
 
 /* The map is a galaxy in both themes: deep space, stars, faint nebulae and glowing dots.
@@ -593,25 +564,15 @@ kbd {
   --faint: #8b95a1;
   --accent: #3ddc97;
   --on-accent: #04140d;
-  --node-file: #ffcf70;
-  --node-function: #fff0c4;
-  --node-class: #dfe8ff;
-  --node-id: #ffb27a;
-  --node-css: #ffe2c4;
-  --edge: #5a6b93;
-  --community-none: #6b7487;
 
   position: relative;
-  order: -1; /* phones: map first, before the sidebar (reset at ≥1000px) */
+  order: -1; /* phones: map first, before the panel (reset at ≥1000px) */
   min-width: 0;
   height: 62vh;
   height: 62dvh;
   min-height: 320px;
   color: var(--text);
-  background:
-    radial-gradient(ellipse 60% 45% at 28% 38%, rgb(96 64 176 / 30%), transparent 70%),
-    radial-gradient(ellipse 55% 50% at 74% 68%, rgb(24 96 160 / 28%), transparent 70%),
-    radial-gradient(ellipse 40% 30% at 60% 20%, rgb(176 64 128 / 16%), transparent 70%), var(--bg);
+  background: var(--bg);
   color-scheme: dark;
 }
 
@@ -631,166 +592,123 @@ kbd {
   outline-offset: -3px;
 }
 
-/* Nebula clouds (app.js scatters them): soft colour behind everything */
-.nebula {
+/* The map is painted on one canvas (app.js section 06): stars, grid, dust coloured by language, names. */
+
+/* What the speck under the pointer is */
+.map-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  gap: 2px;
+  max-width: min(320px, calc(100% - 16px));
+  padding: 6px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font: 11.5px/1.4 var(--font-mono);
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
 
-/* Star dust along the spiral arms: thousands of tiny dots, the same size at any zoom */
-.dust {
-  fill: none;
-  stroke: #dfe8ff;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  opacity: 0.6;
-  vector-effect: non-scaling-stroke;
-  pointer-events: none;
+.map-tooltip strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
-.dust--warm {
-  stroke: #ffe2c4;
+/* Dot colour = language (folds shut on phones) */
+.legend {
+  position: absolute;
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  max-width: calc(100% - 80px);
+  padding: 4px 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in sRGB, var(--surface) 88%, transparent);
+  color: var(--muted);
+  font: 11px/1.5 var(--font-mono);
 }
 
-/* Background stars (app.js scatters them): cool white, a few warm */
-.star {
-  fill: #dfe8ff;
-  pointer-events: none;
-}
-
-.star--warm {
-  fill: #ffe2c4;
-}
-
-/* Stars: every dot glows in its own colour */
-.node-layer {
-  filter: url('#glow');
-}
-
-/* Links are faint light trails between the stars */
-.edge {
-  fill: none;
-  stroke: var(--edge);
-  stroke-width: 1;
-  opacity: 0.4;
-}
-
-.edge--uses,
-.edge--inferred {
-  stroke-dasharray: 4 3;
-}
-
-.edge--imports,
-.edge--loads {
-  stroke: var(--text);
-  stroke-width: 2.2;
-}
-
-.edge--styles,
-.edge--declares {
-  stroke-dasharray: 1 3;
-  opacity: 0.35;
-}
-
-.node {
-  stroke: var(--surface);
-  stroke-width: 1.5;
+.legend summary {
   cursor: pointer;
-  transition: opacity 0.15s;
+  padding: 2px 0;
 }
 
-.node--file {
-  fill: var(--node-file);
+.legend-list {
+  display: grid;
+  gap: 1px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.node--function {
-  fill: var(--node-function);
+/* Each language is a button: click it to show where that language is used */
+.legend-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 1px 6px;
+  margin: 0 -6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: content-box;
 }
 
-.node--class {
-  fill: var(--node-class);
+.legend-btn:hover {
+  background: var(--hover);
 }
 
-.node--html-id {
-  fill: var(--node-id);
+.legend-btn[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
-/* CSS classes are ring stars: color AND form differ from functions */
-.node--css-class {
-  fill: var(--surface);
-  stroke: var(--node-css);
-  stroke-width: 2.5;
+@media (pointer: coarse) {
+  .legend-btn {
+    min-height: 32px;
+  }
 }
 
-/* What makes each kind of star: a white-hot core, a soft halo, or a dashed orbit */
-.star-core {
-  fill: #fff;
-  stroke: none;
-  opacity: 0.85;
+.legend-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
 }
 
-.star-halo {
-  stroke: none;
-  opacity: 0.22;
+.legend-rays {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border);
 }
 
-.star-orbit {
-  fill: none;
-  stroke: var(--node-id);
-  stroke-width: 1.5;
-  stroke-dasharray: 3 3;
+/* A short lavender ray: the files Claude edited or created */
+.legend-ray {
+  flex: none;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: #c9b8ff;
 }
 
-.label {
-  fill: var(--text);
-
-  /* --zoom is set by app.js, so labels stay the same size on screen at any zoom */
-  font: 500 calc(11px / var(--zoom, 1)) var(--font-mono);
-  paint-order: stroke;
-  stroke: var(--bg);
-  stroke-width: calc(3px / var(--zoom, 1));
-  pointer-events: none;
+.legend-name {
+  flex: 1;
 }
 
-/* Community colours (app.js sets --community on each dot): shapes still tell the types apart */
-.graph.by-community .node {
-  fill: var(--community);
-}
-
-.graph.by-community .node--css-class,
-.graph.by-community .star-orbit {
-  stroke: var(--community);
-}
-
-.graph.by-community .node--css-class {
-  fill: var(--surface);
-}
-
-/* Combined maps: each project's name over its island */
-.label--project {
-  fill: var(--accent);
-  font-size: calc(18px / var(--zoom, 1));
-  font-weight: 700;
-  text-anchor: middle;
-}
-
-.label--project[hidden] {
-  display: none;
-}
-
-/* While something is selected, everything unrelated fades */
-.graph.has-focus .node,
-.graph.has-focus .edge,
-.graph.has-focus .label {
-  opacity: 0.12;
-}
-
-.graph.has-focus .is-near {
-  opacity: 1;
-}
-
-.graph .is-selected {
-  stroke: var(--text);
-  stroke-width: 3;
+.legend-count {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
 }
 
 .map-controls {
@@ -806,18 +724,7 @@ kbd {
   box-shadow: var(--shadow);
 }
 
-/* The 2D/3D switch: text, not an icon; filled while 3D is on */
-.depth-btn {
-  font: 700 12px/1 var(--font-mono);
-}
-
-.depth-btn[aria-pressed='true'] {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--bg);
-}
-
-/* Shown when every island or type is switched off */
+/* Shown when the map has nothing in it */
 .map-empty {
   position: absolute;
   top: 50%;
@@ -834,10 +741,18 @@ kbd {
   position: absolute;
   bottom: calc(10px + env(safe-area-inset-bottom));
   left: calc(12px + env(safe-area-inset-left));
+  max-width: calc(100% - 90px); /* never under the zoom buttons */
   margin: 0;
   color: var(--faint);
   font: 11.5px var(--font-mono);
   pointer-events: none;
+}
+
+/* Phones with both side panels closed: the globe fills the screen below the top bar */
+@media (width < 1000px) {
+  .layout:not(.has-numbers) .map {
+    height: calc(100dvh - 52px - env(safe-area-inset-top));
+  }
 }
 
 /* ==========================================================================
@@ -871,6 +786,13 @@ kbd {
 /* Grid items default to min-width: auto and would grow with long rows; this lets names ellipsize instead */
 .details-body > * {
   min-width: 0;
+}
+
+/* The health checks, under the numbers in the right panel */
+.details-title--next {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 
 .selected-name {
@@ -927,6 +849,46 @@ kbd {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+
+/* Kinds of items (functions, html ids…) can be picked: the whole card is the button */
+.stat-pickable {
+  position: relative;
+}
+
+.stat-pickable:hover {
+  background: var(--hover);
+}
+
+.stat-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stat-btn::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.stat-btn[aria-pressed='true']::after {
+  border-color: var(--accent);
+}
+
+.stat-btn:focus-visible {
+  outline: none;
+}
+
+.stat-btn:focus-visible::after {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .overview-stats dt {
@@ -1050,7 +1012,7 @@ kbd {
 }
 
 /* ==========================================================================
-   09  BREAKPOINTS — ≥1000px: sidebar | map | details, each scrolling on its own
+   09  BREAKPOINTS — ≥1000px: map | panel, each scrolling on its own
    ========================================================================== */
 @media (width >= 1000px) {
   body {
@@ -1058,21 +1020,18 @@ kbd {
     height: 100dvh;
   }
 
+  /* The panel is hidden at first: the globe takes the whole width until it's shown */
   .layout {
-    grid-template-columns: 270px minmax(0, 1fr) 340px;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .sidebar,
+  .layout.has-numbers {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+
   .details {
     overflow-y: auto;
     border: 0;
-  }
-
-  .sidebar {
-    border-right: 1px solid var(--border);
-  }
-
-  .details {
     border-left: 1px solid var(--border);
   }
 
@@ -1090,10 +1049,8 @@ kbd {
 
 /* Fingers need more room than a mouse pointer */
 @media (pointer: coarse) {
-  .check,
-  .island-box,
-  .island-name,
-  .panel-action {
+  .node-link,
+  .tree-summary {
     min-height: 44px;
   }
 }
@@ -1109,13 +1066,4 @@ kbd {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
-}
-
-/* A community's colour, in lists */
-.swatch {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--community);
 }

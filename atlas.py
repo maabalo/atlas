@@ -7,6 +7,7 @@ functions, HTML ids and CSS classes connect. Standard library only.
 
     python3 atlas.py build  PROJECT          # map + report + interactive page
     python3 atlas.py build  P1 P2 … --name N # one combined map of several projects
+    python3 atlas.py build  P1 … --satellite F  # plus folder F as a core inside the globe
     python3 atlas.py uses   PROJECT NAME     # what uses NAME?
     python3 atlas.py deps   PROJECT NAME     # what does NAME use?
     python3 atlas.py path   PROJECT A B      # how are A and B connected?
@@ -31,6 +32,7 @@ TABLE OF CONTENTS
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import webbrowser
 from pathlib import Path
@@ -61,6 +63,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     build.add_argument("--name", default="combined", help='name of a combined map (default "combined")')
     build.add_argument("--out", help="output folder (default: maps/NAME in the Atlas folder)")
     build.add_argument("--open", action="store_true", help="open graph.html in the browser")
+    build.add_argument("--satellite", help="one more folder, drawn as a core inside the globe (e.g. ~/.claude)")
+    build.add_argument(
+        "--claude-log",
+        metavar="FOLDER",
+        help="Claude Code's session logs (e.g. ~/.claude/projects): files Claude edited get the brightest strands",
+    )
+    build.add_argument(
+        "--satellite-skip",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help='leave out core folders/files whose name matches (shell-style, repeatable, e.g. "*.jsonl")',
+    )
     add_query_commands(sub)
     check = sub.add_parser("check", help="health checks; exit code 3 when something is found")
     check.add_argument("project")
@@ -129,27 +144,82 @@ def resolve_one(graph: ag.Graph, query: str) -> ag.Node:
 # =============================================================================
 # 04  ANSWERS — each returns text lines (the terminal prints them; the MCP server sends them)
 # =============================================================================
-def load_project(project: str) -> ag.Graph:
+def load_project(project: str, skip: tuple[str, ...] = ()) -> ag.Graph:
     """Build the graph for a project folder (fast: tens of milliseconds for these projects)."""
     root = Path(project).expanduser()
     if not root.is_dir():
         raise AtlasError(f"Not a folder: {project}")
-    graph = ag.build_graph(root)
+    graph = ag.build_graph(root, tuple(skip))
     if len(graph.nodes) == 0:
         raise AtlasError(f"No Python, JavaScript, HTML or CSS files found in {project}")
     return graph
 
 
-def load_projects(projects: list[str], name: str) -> ag.Graph:
-    """One project's graph, or several combined into one (each keeps its own folder name)."""
-    if len(projects) == 1:
+def load_projects(
+    projects: list[str], name: str, satellite: str | None = None, satellite_skip: tuple[str, ...] = ()
+) -> ag.Graph:
+    """One project's graph, or several combined into one (each keeps its own folder name). A satellite
+    folder joins the combined map and is marked, so the viewer draws it as the globe's core."""
+    if len(projects) == 1 and not satellite:
         return load_project(projects[0])
     graphs = [load_project(project) for project in projects]
+    if satellite:
+        graphs.append(load_project(satellite, satellite_skip))
     names = [Path(graph.root).name for graph in graphs]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise AtlasError(f"Two projects share a folder name ({', '.join(repeated)}); rename one first.")
-    return ag.merge_graphs(graphs, name)
+    merged = ag.merge_graphs(graphs, name)
+    if satellite:
+        merged.satellite = Path(graphs[-1].root).name
+    return merged
+
+
+CLAUDE_FILE_TOOLS = {"Edit": "edits", "MultiEdit": "edits", "NotebookEdit": "edits", "Write": "writes"}
+
+
+def claude_touches(log_dir: Path, roots: list[str], graph: ag.Graph) -> dict[str, dict[str, int]]:
+    """How often Claude edited (Edit) or wrote (Write: created or rewrote) each file on the map, read from
+    Claude Code's session logs. Only the tool name and its file_path are read from each log line, nothing
+    else, and only files that are on this map count (anything outside the mapped folders is ignored)."""
+    combined = len(roots) > 1 or bool(graph.satellite)
+    bases = [(Path(root).expanduser().resolve(), Path(root).expanduser().resolve().name) for root in roots]
+    found: dict[str, dict[str, int]] = {}
+    for log in sorted(log_dir.rglob("*.jsonl")) if log_dir.is_dir() else []:
+        for tool, path in file_tool_uses(log):
+            node_id = file_node_for(Path(path), bases, combined)
+            if node_id in graph.nodes:
+                counts = found.setdefault(node_id, {"edits": 0, "writes": 0})
+                counts[CLAUDE_FILE_TOOLS[tool]] += 1
+    return found
+
+
+def file_tool_uses(log: Path):
+    """(tool name, file_path) for every Edit / Write-style tool call in one session log (JSON lines)."""
+    with open(log, encoding="utf-8", errors="replace") as lines:
+        for line in lines:
+            if '"tool_use"' not in line or '"file_path"' not in line:
+                continue  # skip the rest without parsing it: fast, and nothing else is read
+            try:
+                content = (json.loads(line).get("message") or {}).get("content") or []
+            except (ValueError, AttributeError):
+                continue
+            for part in content if isinstance(content, list) else []:
+                if isinstance(part, dict) and part.get("type") == "tool_use" and part.get("name") in CLAUDE_FILE_TOOLS:
+                    path = (part.get("input") or {}).get("file_path")
+                    if isinstance(path, str):
+                        yield part["name"], path
+
+
+def file_node_for(path: Path, bases: list[tuple[Path, str]], combined: bool) -> str:
+    """The map's id for an absolute file path ("file:my_site/app.js" in a combined map), or "" if outside."""
+    for base, name in bases:
+        try:
+            rel = path.resolve().relative_to(base).as_posix()
+        except (ValueError, OSError):
+            continue
+        return f"file:{name}/{rel}" if combined else f"file:{rel}"
+    return ""
 
 
 def links_lines(graph: ag.Graph, name: str, outgoing: bool) -> list[str]:
@@ -214,7 +284,10 @@ def communities_lines(graph: ag.Graph, limit: int) -> list[str]:
 # =============================================================================
 def cmd_build(args: argparse.Namespace) -> int:
     """Write the three outputs and print where they are."""
-    graph = load_projects(args.project, args.name)
+    graph = load_projects(args.project, args.name, args.satellite, tuple(args.satellite_skip))
+    if args.claude_log:
+        roots = [*args.project, *([args.satellite] if args.satellite else [])]
+        graph.touches = claude_touches(Path(args.claude_log).expanduser(), roots, graph)
     out = Path(args.out).expanduser() if args.out else MAPS_DIR / Path(graph.root).name
     paths = atlas_export.write_outputs(graph, out)
     counts = atlas_export.graph_to_dict(graph)["meta"]["counts"]

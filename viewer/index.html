@@ -11,10 +11,9 @@
 
   LAYOUT MAP
     0. sprite    — icons (<use href="#i-NAME">)
-    1. topbar    — brand, project name, help and theme buttons
-    2. sidebar   — search, islands (combined maps), filters (node types), legend, health checks
-    3. map       — the SVG graph + zoom/pan controls
-    4. details   — the selected node: where it is, what uses it, what it uses
+    1. topbar    — brand, project name, globe/web switch, help / spin / panel / theme buttons
+    3. map       — the globe: dust on a 100 × 100 grid, zoom/fit controls
+    4. details   — numbers only (hidden at first; the top bar's numbers button shows it)
     5. overlays  — help dialog, screen-reader announcer
   ==========================================================================
 -->
@@ -70,6 +69,15 @@
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
       </symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></symbol>
+      <symbol id="i-sidebar" viewBox="0 0 24 24">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M9 4v16" />
+      </symbol>
+      <symbol id="i-numbers" viewBox="0 0 24 24"><path d="M10 4 8 20M16 4l-2 16M4 9h16M3 15h16" /></symbol>
+      <symbol id="i-spin" viewBox="0 0 24 24">
+        <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+        <path d="M20 4v5h-5" />
+      </symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
       <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
       <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></symbol>
@@ -79,7 +87,7 @@
       </symbol>
     </svg>
 
-    <a class="skip-link" href="#searchInput">Skip to search</a>
+    <a class="skip-link" href="#graph">Skip to the map</a>
 
     <!-- ===================== 1. TOP BAR ===================== -->
     <header class="topbar">
@@ -91,6 +99,15 @@
       ></span>
       <span id="projectName" class="project-name">project</span>
       <div class="topbar-actions">
+        <!-- Globe or flat web (app.js section 06b); V switches -->
+        <div class="view-switch" role="group" aria-label="View">
+          <button type="button" class="view-btn" data-view="globe" aria-pressed="true" title="Globe (V)">
+            globe
+          </button>
+          <button type="button" class="view-btn" data-view="web" aria-pressed="false" title="Web (V)">
+            web
+          </button>
+        </div>
         <button
           id="helpBtn"
           class="icon-btn"
@@ -100,6 +117,27 @@
         >
           <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-help" /></svg>
         </button>
+        <button
+          id="spinBtn"
+          class="icon-btn"
+          type="button"
+          aria-label="Spin the globe and its core"
+          aria-pressed="true"
+          title="Spin on / off (S)"
+        >
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-spin" /></svg>
+        </button>
+        <button
+          id="numbersBtn"
+          class="icon-btn"
+          type="button"
+          aria-label="Search, folders, numbers and health"
+          aria-expanded="false"
+          aria-controls="details"
+          title="Search, folders, numbers and health (/)"
+        >
+          <svg class="icon icon--flip" aria-hidden="true" focusable="false"><use href="#i-sidebar" /></svg>
+        </button>
         <button id="themeBtn" class="icon-btn" type="button" aria-label="Theme"></button>
       </div>
     </header>
@@ -107,8 +145,52 @@
     <main class="layout">
       <h1 class="sr-only">Code map</h1>
 
-      <!-- ===================== 2. SIDEBAR ===================== -->
-      <aside class="sidebar" aria-label="Search, filters and health checks">
+      <!-- ===================== 3. MAP ===================== -->
+      <section class="map" aria-labelledby="mapTitle">
+        <h2 id="mapTitle" class="sr-only">Map</h2>
+        <!-- Keyboard: arrow keys pan (in 3D: turn; Shift+arrows pan), + and - zoom, 0 fits the whole map. -->
+        <!-- Stars, the 100 × 100 grid, the dust and its names: all painted by app.js section 06 -->
+        <canvas
+          id="graph"
+          class="graph"
+          tabindex="0"
+          role="img"
+          aria-label="Globe map of the project. Use search to explore it with a keyboard or screen reader."
+        ></canvas>
+        <!-- What the speck under the pointer is (text only, filled by app.js) -->
+        <div id="tooltip" class="map-tooltip" hidden></div>
+        <details id="legend" class="legend" open hidden>
+          <summary>dot colour = language</summary>
+          <p class="sr-only">Pick a language to show where it is used.</p>
+          <ul id="legendList" class="legend-list"></ul>
+        </details>
+        <p id="mapEmpty" class="map-empty" hidden>Nothing to show: this map is empty.</p>
+        <div class="map-controls" role="group" aria-label="View">
+          <button id="zoomInBtn" class="icon-btn" type="button" aria-label="Zoom in" title="Zoom in (+)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>
+          </button>
+          <button id="zoomOutBtn" class="icon-btn" type="button" aria-label="Zoom out" title="Zoom out (-)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-minus" /></svg>
+          </button>
+          <button id="fitBtn" class="icon-btn" type="button" aria-label="Fit the whole map" title="Fit (0)">
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit" /></svg>
+          </button>
+        </div>
+        <p id="mapHint" class="map-hint">
+          drag to turn · shift+drag to pan · scroll to zoom · point at or click a speck
+        </p>
+      </section>
+
+      <!-- ===================== 4. PANEL: search, folders, numbers, health ===================== -->
+      <section
+        id="details"
+        class="details"
+        aria-label="Search, folders, numbers and health"
+        tabindex="-1"
+        hidden
+      >
+        <!-- The one side panel (right): search, folders, numbers, health. Hidden at first; the top bar's panel
+             button (or /) shows it. -->
         <div class="search">
           <label class="sr-only" for="searchInput">Find a file, function, #id or .class</label>
           <svg class="icon search-icon" aria-hidden="true" focusable="false"><use href="#i-search" /></svg>
@@ -126,136 +208,16 @@
         <!-- Search results (buttons). Filled by app.js section 11. -->
         <ul id="searchResults" class="results" aria-label="Search results" hidden></ul>
 
-        <!-- Combined maps only: each folder pulled in, to show, hide or fly to. Filled by app.js section 12. -->
-        <section id="islandPanel" class="panel" aria-labelledby="islandsTitle" hidden>
-          <div class="panel-head">
-            <h2 id="islandsTitle" class="panel-title">islands · <span id="islandCount"></span></h2>
-            <button id="islandToggle" class="panel-action" type="button">hide all</button>
-          </div>
-          <div id="islandList" class="filters"></div>
-        </section>
+        <h2 id="treeTitle" class="details-title details-title--next">folders</h2>
+        <!-- Every folder with the files inside it. Filled by app.js section 12; a click turns the globe to it. -->
+        <div id="tree" class="tree"></div>
 
-        <fieldset class="panel">
-          <legend class="panel-title">show</legend>
-          <!-- One checkbox per node type, with its count and kind of star. Filled by app.js section 12. -->
-          <div id="typeFilters" class="filters"></div>
-          <label class="check">
-            <input id="inferredToggle" class="check-input" type="checkbox" checked />
-            <span>inferred links</span>
-          </label>
-          <label class="check">
-            <input id="labelsToggle" class="check-input" type="checkbox" />
-            <span>labels</span>
-          </label>
-          <label class="check">
-            <input id="communityToggle" class="check-input" type="checkbox" />
-            <span>community colours</span>
-          </label>
-        </fieldset>
-
-        <section class="panel" aria-labelledby="linksTitle">
-          <h2 id="linksTitle" class="panel-title">links</h2>
-          <ul class="legend">
-            <li><span class="line line--calls" aria-hidden="true"></span> calls</li>
-            <li><span class="line line--uses" aria-hidden="true"></span> uses</li>
-            <li><span class="line line--imports" aria-hidden="true"></span> imports / loads</li>
-            <li><span class="line line--styles" aria-hidden="true"></span> styles / declares</li>
-          </ul>
-        </section>
-
-        <section class="panel" aria-labelledby="healthTitle">
-          <h2 id="healthTitle" class="panel-title">health</h2>
-          <!-- Possible problems; filled by app.js section 13. -->
-          <div id="healthList" class="health"></div>
-        </section>
-      </aside>
-
-      <!-- ===================== 3. MAP ===================== -->
-      <section class="map" aria-labelledby="mapTitle">
-        <h2 id="mapTitle" class="sr-only">Map</h2>
-        <!-- Keyboard: arrow keys pan (in 3D: turn; Shift+arrows pan), + and - zoom, 0 fits the whole map. -->
-        <svg
-          id="graph"
-          class="graph"
-          tabindex="0"
-          role="img"
-          aria-label="Map of the project. Use search or the details panel to explore it with a keyboard or screen reader."
-        >
-          <defs>
-            <!-- Galaxy glow: each dot shines in its own colour (app.js keeps the blur the same on screen at any zoom) -->
-            <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
-              <feGaussianBlur id="glowBlur" in="SourceGraphic" stdDeviation="3" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            <!-- Nebula clouds: soft colours that fade out to nothing at the edge -->
-            <radialGradient id="nebula-core">
-              <stop offset="0" stop-color="#fff4d0" stop-opacity="0.95" />
-              <stop offset="0.35" stop-color="#ffc27a" stop-opacity="0.42" />
-              <stop offset="1" stop-color="#ff9a5c" stop-opacity="0" />
-            </radialGradient>
-            <radialGradient id="nebula-violet">
-              <stop offset="0" stop-color="#8a5cf0" stop-opacity="0.5" />
-              <stop offset="1" stop-color="#8a5cf0" stop-opacity="0" />
-            </radialGradient>
-            <radialGradient id="nebula-teal">
-              <stop offset="0" stop-color="#2fc4b2" stop-opacity="0.38" />
-              <stop offset="1" stop-color="#2fc4b2" stop-opacity="0" />
-            </radialGradient>
-            <radialGradient id="nebula-rose">
-              <stop offset="0" stop-color="#e0559a" stop-opacity="0.4" />
-              <stop offset="1" stop-color="#e0559a" stop-opacity="0" />
-            </radialGradient>
-            <radialGradient id="nebula-blue">
-              <stop offset="0" stop-color="#3f7fe8" stop-opacity="0.42" />
-              <stop offset="1" stop-color="#3f7fe8" stop-opacity="0" />
-            </radialGradient>
-          </defs>
-          <!-- Background stars: scattered by app.js; in 3D they turn with the galaxy -->
-          <g id="starLayer" class="star-layer" aria-hidden="true"></g>
-          <g id="viewport">
-            <!-- Nebula clouds: real places in the galaxy, so they turn and zoom with it -->
-            <g id="nebulaLayer" aria-hidden="true"></g>
-            <g id="edgeLayer"></g>
-            <g id="nodeLayer" class="node-layer"></g>
-            <g id="labelLayer"></g>
-          </g>
-        </svg>
-        <p id="mapEmpty" class="map-empty" hidden>
-          Nothing shown. Tick an island or a type to bring the stars back.
-        </p>
-        <div class="map-controls" role="group" aria-label="View">
-          <button
-            id="depthBtn"
-            class="icon-btn depth-btn"
-            type="button"
-            aria-pressed="true"
-            aria-label="3D view"
-            title="3D view: drag to turn"
-          >
-            3D
-          </button>
-          <button id="zoomInBtn" class="icon-btn" type="button" aria-label="Zoom in" title="Zoom in (+)">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>
-          </button>
-          <button id="zoomOutBtn" class="icon-btn" type="button" aria-label="Zoom out" title="Zoom out (-)">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-minus" /></svg>
-          </button>
-          <button id="fitBtn" class="icon-btn" type="button" aria-label="Fit the whole map" title="Fit (0)">
-            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit" /></svg>
-          </button>
-        </div>
-        <p id="mapHint" class="map-hint">drag to turn · shift+drag to pan · scroll to zoom · click a star</p>
-      </section>
-
-      <!-- ===================== 4. DETAILS ===================== -->
-      <section id="details" class="details" aria-labelledby="detailsTitle" tabindex="-1">
-        <h2 id="detailsTitle" class="details-title">overview</h2>
-        <!-- The selected node, or the project overview. Filled by app.js section 10. -->
+        <h2 id="detailsTitle" class="details-title details-title--next">numbers</h2>
+        <!-- Counts. Filled by app.js section 09. -->
         <div id="detailsBody" class="details-body"></div>
+        <h2 id="healthTitle" class="details-title details-title--next">health</h2>
+        <!-- Possible problems (unused code, missing ids); filled by app.js section 10. -->
+        <div id="healthList" class="health"></div>
       </section>
     </main>
 
@@ -271,58 +233,78 @@
       <div class="dialog-body">
         <h2 id="helpTitle" class="help-title">Reading the map</h2>
         <p class="help-lead">
-          Each star is a piece of the project; each line is a link between two pieces. Click a star (or
-          search) to see exactly what uses it and what it uses.
+          The project is a globe with a grid of 100 rows and 100 columns. Every folder, file and piece of code
+          is a tiny speck of dust, scattered over the globe. Each folder sits in the middle of its files and
+          subfolders, in rings, and each file is surrounded by its code.
         </p>
         <dl class="help-defs">
           <div>
-            <dt>giant star (with a halo)</dt>
-            <dd>A file</dd>
-          </div>
-          <div>
-            <dt>sun</dt>
-            <dd>A function. Bigger = more connected (a "hub": change it carefully)</dd>
-          </div>
-          <div>
-            <dt>binary star (two together)</dt>
-            <dd>A class (Python)</dd>
-          </div>
-          <div>
-            <dt>pulsar (dashed orbit)</dt>
-            <dd>An HTML id (#name)</dd>
-          </div>
-          <div>
-            <dt>ring star (hollow)</dt>
-            <dd>A CSS class (.name)</dd>
-          </div>
-          <div>
-            <dt>islands</dt>
+            <dt>dust colours</dt>
             <dd>
-              On a map of several projects, each folder is an island. The panel on the left counts them:
-              untick a box to hide one, or click a name to fly to it.
+              Folders are off-white; files and their code are coloured by language, in pastels (the key is at
+              the top left of the map). Folders and files are a little bigger than code. Dust on the far side
+              of the globe is dimmer.
             </dd>
           </div>
           <div>
-            <dt>labels</dt>
+            <dt>panel</dt>
             <dd>
-              Names are hidden at first, to keep the map calm: tick <strong>labels</strong> to show file, hub
-              and project names. The selected star and its neighbours are always named, and pointing at a star
-              shows its name.
+              The panel button at the top right (or <kbd>/</kbd>) shows or hides the panel on the right:
+              search, the folders, the numbers (how many folders, files and pieces of code there are, and
+              links) and the health checks. It's hidden at first. In the numbers, click a kind (functions,
+              classes, html ids…) to light up those items and whatever declares or uses them; click it again
+              to clear.
             </dd>
           </div>
           <div>
-            <dt>communities</dt>
+            <dt>folders</dt>
             <dd>
-              Groups of code linked mostly to each other (subsystems). Tick
-              <strong>community colours</strong> to colour the stars by group; the overview lists the biggest,
-              and clicking one fits the map to it.
+              The panel lists the folders under the search box, closed at first: click one to see the files
+              inside it. Clicking a folder or file glides the globe round until it faces you.
             </dd>
           </div>
           <div>
-            <dt>certain / inferred</dt>
+            <dt>names</dt>
             <dd>
-              Certain links are written in the code. Inferred links were matched by name, so they're likely
-              but not guaranteed.
+              Pointing at a speck rings it and shows what it is: its name, language, and how many files, code
+              parts or links it has. The selected speck and a few of its neighbours are named on the globe.
+            </dd>
+          </div>
+          <div>
+            <dt>links</dt>
+            <dd>
+              Links aren't drawn. Click a speck and what it's linked to lights up; click a language in the
+              colour key (or a kind in the numbers panel) to see where it's used. Click it again or press
+              <kbd>Esc</kbd> to clear.
+            </dd>
+          </div>
+          <div>
+            <dt>web</dt>
+            <dd>
+              The <strong>web</strong> switch at the top (or <kbd>V</kbd>) shows the folders and files as a
+              flat web instead: lines join each folder to what's inside it and each file to the files it
+              loads, imports, calls or uses, and better-linked specks are a little bigger. It's all fine dust,
+              and each file's code parts float round it in a little cloud. It settles by itself, then stays
+              still. Drag empty space to move around, drag a dot to pull it (the rest follow).
+            </dd>
+          </div>
+          <div>
+            <dt>spin</dt>
+            <dd>
+              The globe turns slowly on its own axis (once in about 10½ minutes) and Claude's core inside it
+              turns slowly the other way. The spin button at the top (or <kbd>S</kbd>) stops and starts both;
+              it starts off when your computer asks for less motion.
+            </dd>
+          </div>
+          <div>
+            <dt>Claude's core</dt>
+            <dd>
+              On the map of all your projects, Claude's own folder (<code>.claude</code>) is the small dust
+              ball at the centre, seen through the globe, with a glowing nucleus. Fine curved strands burst
+              from it to every file and folder, warm near the nucleus and blue at the tip; the brightest go to
+              files Claude has edited or created (from Claude Code's logs: only which files, nothing else).
+              Strands near your cursor bend aside. Point at a file to see how often Claude edited it. In the
+              web view Claude's lines start at the <code>.claude</code> dot.
             </dd>
           </div>
           <div>
@@ -335,16 +317,15 @@
         </dl>
         <h3 class="help-heading">Keyboard</h3>
         <p class="help-lead">
-          <kbd>/</kbd> search · <kbd>Esc</kbd> clear the selection · on the map: arrow keys turn (2D: pan),
-          <kbd>+</kbd> <kbd>−</kbd> zoom, <kbd>0</kbd> fit · <kbd>?</kbd> this help
+          <kbd>/</kbd> search · <kbd>Esc</kbd> clear the selection · on the map: arrow keys turn, <kbd>+</kbd>
+          <kbd>−</kbd> zoom, <kbd>0</kbd> fit · <kbd>S</kbd> spin on/off · <kbd>V</kbd> globe / web ·
+          <kbd>?</kbd> this help
         </p>
-        <h3 class="help-heading">3D</h3>
+        <h3 class="help-heading">Turning the globe</h3>
         <p class="help-lead">
-          The map opens in 3D, shaped like a slowly turning spiral galaxy (the swirl is for looks; the lines
-          show the real links): drag or use the arrow keys to turn it; <kbd>Shift</kbd> + drag or
-          <kbd>Shift</kbd> + arrows pan. It spins freely in every direction, around whatever is in the middle
-          of the screen, and the clouds and stars turn with it. Nearer stars are drawn bigger. The
-          <strong>3D</strong> button (top of the map's corner buttons) switches to the flat map and back.
+          Drag or use the arrow keys to turn it: it always turns around its own centre. <kbd>Shift</kbd> +
+          drag or <kbd>Shift</kbd> + arrows slide it across the screen. The half of the grid facing you is
+          brighter, and nearer dust is drawn bigger. Selecting something turns the globe until it faces you.
         </p>
       </div>
       <div class="dialog-foot">
@@ -357,6 +338,7 @@
     <!-- Graph data: replaced with the real JSON by atlas_export.py (must stay on one line). -->
     <!-- prettier-ignore -->
     <script id="graphData" type="application/json">{}</script>
+    <script src="core.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

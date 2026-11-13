@@ -28,6 +28,7 @@ TABLE OF CONTENTS
 from __future__ import annotations
 
 import ast
+import fnmatch
 import os
 import re
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ from pathlib import Path
 # 01  SETTINGS & THE FileFacts RECORD
 # =============================================================================
 LANGUAGES = {".py": "python", ".js": "javascript", ".mjs": "javascript", ".html": "html", ".htm": "html", ".css": "css"}
+JUNK_FILES = {".DS_Store", "Thumbs.db", "desktop.ini"}  # system clutter: never part of a project
 SKIP_DIRS = {"node_modules", "__pycache__", ".git", ".venv", "venv", "dist", "build", ".ruff_cache", "maps"}
 MAX_FILE_BYTES = 2_000_000  # bigger files are almost always generated or vendored
 JS_KEYWORDS = {
@@ -96,16 +98,39 @@ def line_of(text: str, offset: int) -> int:
 # =============================================================================
 # 02  FINDING FILES
 # =============================================================================
-def find_source_files(root: Path) -> list[Path]:
-    """Source files under root, skipping dependencies, caches, hidden folders and minified code."""
+def skipped(name: str, skip: tuple[str, ...]) -> bool:
+    """Whether a folder or file name matches one of the extra skip patterns (shell-style, e.g. "*.jsonl")."""
+    return any(fnmatch.fnmatchcase(name, pattern) for pattern in skip)
+
+
+def find_source_files(root: Path, skip: tuple[str, ...] = ()) -> list[Path]:
+    """Source files under root, skipping dependencies, caches, hidden folders, minified code and any
+    folder or file whose name matches a `skip` pattern."""
     found = []
     for folder, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith("."))
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".") and not skipped(d, skip))
         for name in sorted(files):
             path = Path(folder) / name
+            if skipped(name, skip):
+                continue
             if path.suffix.lower() in LANGUAGES and ".min." not in name and path.stat().st_size <= MAX_FILE_BYTES:
                 found.append(path)
     return found
+
+
+def find_all_files(root: Path, skip: tuple[str, ...] = ()) -> tuple[list[Path], list[Path]]:
+    """Every folder and every file under root (for the folder map), skipping the same folders as
+    find_source_files, hidden folders, compiled Python, system clutter and `skip` matches. Returns (folders, files)."""
+    folders, found = [], []
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".") and not skipped(d, skip))
+        folders.append(Path(folder))
+        found += [
+            Path(folder) / name
+            for name in sorted(files)
+            if name not in JUNK_FILES and not name.endswith(".pyc") and not skipped(name, skip)
+        ]
+    return folders, found
 
 
 def scan_file(path: Path, root: Path) -> FileFacts:

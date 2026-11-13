@@ -34,7 +34,7 @@ On Windows, use `python` instead of `python3`.
 
 ## The Mac app
 
-Prefer double-clicking? Build `Atlas.app` once with `sh packaging/build_app.sh` (it needs Python and an internet connection to fetch PyInstaller), then open `dist/Atlas.app`. Double-click it and it rebuilds one combined map of the projects in `~/Documents/Project`, then opens it in your browser. On a Mac without that folder, it asks which folder to map. The app doesn't need Python to run. Maps are saved in `~/Library/Application Support/Atlas/maps/`, never in your project.
+Prefer double-clicking? Build `Atlas.app` once with `sh packaging/build_app.sh` (it needs Python and an internet connection to fetch PyInstaller), then open `dist/Atlas.app`. Double-click it and it rebuilds one combined map of the projects in `~/Documents/Project`, then opens it in your browser. Claude's own folder (`~/.claude`: settings, skills, memory, plugins and saved conversations) is added as Claude's **core**: a small dust ball at the centre of the globe, seen through it and turning the other way (`--satellite`). A glowing **nucleus** sits at its centre with **fine curved strands** bursting out to every file and folder (warm near the nucleus, blue at the tip; strands near the cursor bend aside; they grow out once when the map opens). The brightest strands go to every file Claude has edited or created, read from Claude Code's session logs (`--claude-log ~/.claude/projects`: only the Edit/Write tool names and file paths are read, nothing else; files changed through scripts aren't named in the logs, so they get no ray). Point at a file to see "Claude: edited 12×". Saved conversations, file history, caches, session files and backups are left out of the core (`--satellite-skip PATTERN`, repeatable); only file names and the code inside Python/JavaScript/HTML/CSS files go into the map, never the text of your notes or conversations. On a Mac without that folder, it asks which folder to map. The app doesn't need Python to run. Maps are saved in `~/Library/Application Support/Atlas/maps/`, never in your project.
 
 The app isn't notarized by Apple, so if you copy it to another Mac, the first launch needs right-click → **Open** (or approval in System Settings → Privacy & Security). The build runs only on the kind of Mac that built it (Apple silicon or Intel).
 
@@ -45,7 +45,7 @@ Run them from the Atlas folder. `PROJECT` is the path to any project folder.
 | Command | What it answers |
 |---|---|
 | `python3 atlas.py build PROJECT` | Makes the map: `graph.html`, `GRAPH_REPORT.md` and `graph.json` in `maps/PROJECT/`. Add `--open` to open it in the browser, or `--out FOLDER` to save it somewhere else. |
-| `python3 atlas.py build P1 P2 … --name NAME` | One **combined map** of several projects in `maps/NAME/`. Each project becomes its own island with its name over it, and every path starts with the project's folder name (`my_site/assets/js/app.js`), so projects never link to each other by accident. Two projects can't share a folder name. |
+| `python3 atlas.py build P1 P2 … --name NAME` | One **combined map** of several projects in `maps/NAME/`. Each project becomes its own island (a band of dust on the globe), and every path starts with the project's folder name (`my_site/assets/js/app.js`), so projects never link to each other by accident. Two projects can't share a folder name. |
 | `python3 atlas.py uses PROJECT NAME` | What uses NAME? (who calls it, loads it, styles it) |
 | `python3 atlas.py deps PROJECT NAME` | What does NAME use? |
 | `python3 atlas.py explain PROJECT NAME` | Both, plus where NAME is defined. |
@@ -84,30 +84,30 @@ missing ids: none ✓
 
 `graph.html` is a single file. It opens straight from Finder, works offline, and you can send it to someone.
 
-The map looks like a **galaxy**: deep space with scattered stars and faint nebulae, each dot glowing in its own colour, and links as faint light trails. It stays dark in the light theme too (the panels around it follow the theme).
+The map is a **globe** in deep space, with a faint grid of **100 rows and 100 columns**. Every **folder**, **file** (images, docs and data too, skipping junk like `.git`, `node_modules` and caches) and **piece of code** (functions, classes, HTML ids, CSS classes) is a tiny speck of **dust**, scattered over the globe (not on the grid lines): each **folder sits in the middle of its files and subfolders**, in rings, and each file is surrounded by its code. Each project starts from its own spot on the globe. It stays dark in the light theme too (the panels around it follow the theme).
 
-Each type of thing is its own **kind of star** as well as its own colour:
-
-| Star | Meaning |
+| Dust | Meaning |
 |---|---|
-| giant star (with a halo) | a file |
-| sun | a function (bigger means more connected) |
-| binary star (two together) | a Python class |
-| pulsar (dashed orbit) | an HTML id (hidden at first: tick **html ids**) |
-| ring star (hollow) | a CSS class (hidden at first: tick **css classes**) |
+| off-white (bigger) | a folder |
+| a pastel by language (bigger) | a file: Python pastel blue, JavaScript butter yellow, TypeScript baby blue, HTML peach, CSS lavender, Markdown mint, JSON pastel gold, shell pastel green; anything else soft grey |
+| the same colour, smaller | a function, class, HTML id or CSS class in that file |
 
-- **Communities:** the overview lists the biggest; click one to fit the map to it. Tick **community colours** to colour the dots by community (their shapes still show their type). Selecting a dot shows its community too.
-- **Islands:** on a combined map, the left panel counts the folders pulled in. Untick one to hide it, or click its name to fly to it.
-- **Labels** are hidden at first, to keep the map calm. Tick **labels** to show file, hub and project names. The selected shape and its neighbours are always named, and pointing at a dot shows its name.
-- **Click a star**, or **search** for it, to see everything that uses it and everything it uses. Click any row to jump there.
-- **Drag** to move around. **Scroll** or use **+ / −** to zoom, and **⛶** to fit the whole map.
-- **3D (the default):** the map opens as a spiral galaxy that turns very slowly by itself until you touch it or select a star, spread out in depth (where a star sits in the swirl is for looks; the lines show the real links), drawn in perspective (nearer shapes are bigger and cover farther ones). **Drag** or the **arrow keys** turn it; **Shift** + drag or **Shift** + arrows pan. The **3D** button switches to the flat 2D map and back. In a combined map the projects' islands sit around a sphere, so no angle stacks them up.
+The key at the top left of the map lists each language with its number of files (folded on phones). **Click a language** to see where it's used: its files, their links and the files at the other end stay bright and the globe turns toward them (click again or Esc to clear). Dust on the far side of the globe is dimmer.
+
+- **Panel:** one panel, on the right, hidden at first so the globe fills the window. The panel button at the top right (or `/`) shows it: search at the top, then the folders, the numbers and the health checks.
+- **Folders list:** under the search box, closed at first: click one to show the files inside it. Picking a folder or file glides the globe round until it faces you.
+- **Numbers:** in the panel, under the folders. **Click a kind** (functions, html ids…) to light up those items and whatever declares or uses them; their names appear on the globe where they fit. Click again or Esc to clear.
+- **Links** aren't drawn: clicking a speck lights up what it's linked to, and picking a language or kind shows where it's used.
+- **Web view:** the **globe | web** switch at the top (or **V**) shows folders and files as a flat web (like graphify's): lines join folders to what's inside them and files to the files they use; it's all fine dust, with each file's code parts floating round it in a little cloud, and better-linked specks a little bigger. It settles by itself, then stays still. Drag empty space to move, drag a dot to pull it.
+- **Spin:** the globe turns slowly on its own axis (about once in 10½ minutes) and Claude's core turns slowly the other way. The spin button at the top, or **S**, stops and starts both; it starts off when the Mac asks for less motion.
+- **Click a speck**, or **search** for it, to highlight it and what it's linked to; it and a few neighbours are named. **Pointing at a speck** rings it and shows what it is (name, language, how many files, code parts or links). The address keeps the selection (`#star=…`), so a link reopens the map on it.
+- **Turning:** **drag** or the **arrow keys** turn the globe, always around its own centre; **Shift** + drag or **Shift** + arrows slide it across the screen. Selecting something turns the globe until it faces you. It only moves when you move it.
 - **Keyboard:**
   - `/` search
   - `Esc` clear the selection
   - `?` help
   - on the map: arrow keys turn (`Shift` + arrows pan; in 2D they pan), `+` and `-` zoom, `0` fits the whole map
-- The **health** panel lists possible problems. Click one to find it on the map.
+- **Health** (in the panel, under the numbers) lists possible problems. Click one to find it on the map.
 
 ## Ask Atlas from Claude Code (MCP server)
 
@@ -163,7 +163,7 @@ Even so, **treat health results as "check this"**, not "delete this".
 | `atlas_export.py` | Writes the JSON, the Markdown report and the single-file HTML map. |
 | `atlas.py` | The command line. Its answers are text lines, shared with the MCP server. |
 | `atlas_mcp.py` | The MCP server (JSON-RPC 2.0 over stdio, written by hand: no SDK needed). |
-| `viewer/` | The map page template: `index.html`, `style.css`, `app.js`. It uses no libraries; the layout is a small force simulation (in 2D or 3D), and the 3D view is plain SVG with its own perspective maths. Links are weakened by how many links their ends have (like d3), so a hub with dozens of links can't push the layout apart. |
+| `viewer/` | The map page template: `index.html`, `style.css`, `core.js` (the pure maths, colours and web physics, tested on its own) and `app.js` (drawing and controls). Maps get a Content-Security-Policy that only allows their own inline code (by hash) and Google Fonts. It uses no libraries: every node is placed on a 100 × 100 grid globe (folders surrounded by their files), painted on one `<canvas>` with its own perspective, only when something moves. |
 | `tests/` | `test_atlas.py`, plus `fixture/`, a tiny project where every tricky case has a known answer. |
 
 Atlas skips these folders:
@@ -177,7 +177,8 @@ It also skips files over 2 MB, which are almost always generated or minified.
 ## Checks (for development)
 
 ```sh
-python3 -m unittest discover -s tests -v   # 57 tests, no network
+python3 -m unittest discover -s tests -v   # 64 tests, no network
+node --test tests/core.test.js             # 11 tests for viewer/core.js (Node's built-in runner, nothing to install)
 ruff check . && ruff format --check .      # Python style (pyproject.toml)
 npm install && npm run lint                # viewer: html-validate, stylelint, ESLint, Prettier
 ```

@@ -28,6 +28,26 @@ PROJECTS_HOME = Path.home() / "Documents" / "Project"
 ATLAS_OWN_FOLDER = "00"  # Atlas itself isn't part of the map
 PORTFOLIO_FOLDER = "Resume_page"  # the one project outside the numbered folders
 COMBINED_NAME = "Project"
+SATELLITE = Path.home() / ".claude"  # Claude's own folder: drawn as the core inside the Project globe (user's choice)
+# Left out of the moon: saved conversations (folders named by id, and *.jsonl logs), file history, caches, session
+# files and backups. They're noise on the map and private; instructions, skills, plugins and memory notes stay.
+SATELLITE_SKIP = (
+    "????????-????-????-????-????????????",
+    "*.jsonl",
+    "file-history",
+    "cache",
+    "paste-cache",
+    "telemetry",
+    "statsig",
+    "session-env",
+    "sessions",
+    "shell-snapshots",
+    "todos",
+    "debug",
+    "backups",
+    "skill-backups",
+    "ide",
+)
 OSASCRIPT = "/usr/bin/osascript"
 USER_CANCELLED = "-128"  # AppleScript's error number when Cancel is pressed
 
@@ -95,8 +115,18 @@ def build_map(projects: list[Path], name: str) -> str | None:
     """Build the map and open it; returns the problem as text, or None if it worked."""
     errors = io.StringIO()
     folders = [str(project) for project in projects]
+    moon = []
+    if name == COMBINED_NAME and SATELLITE.is_dir():
+        moon = [
+            "--satellite",
+            str(SATELLITE),
+            *[arg for pattern in SATELLITE_SKIP for arg in ("--satellite-skip", pattern)],
+        ]
+        logs = SATELLITE / "projects"  # Claude Code's session logs: only which files Claude edited or created is read
+        if logs.is_dir():
+            moon += ["--claude-log", str(logs)]
     with contextlib.redirect_stderr(errors):
-        code = atlas.main(["build", *folders, "--name", name, "--out", str(MAPS_DIR / name), "--open"])
+        code = atlas.main(["build", *folders, *moon, "--name", name, "--out", str(MAPS_DIR / name), "--open"])
     return None if code == atlas.EXIT_OK else errors.getvalue().strip() or "Something went wrong."
 
 

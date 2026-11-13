@@ -42,10 +42,10 @@ MAX_PASSES = 20  # Louvain: moving rounds per level (it settles long before this
 # =============================================================================
 @dataclass
 class Node:
-    """One thing in the code: a file, function, class, HTML id or CSS class."""
+    """One thing in the project: a folder, file, function, class, HTML id or CSS class."""
 
     id: str
-    type: str  # file | function | class | html-id | css-class
+    type: str  # folder | file | function | class | html-id | css-class
     name: str
     file: str = ""
     line: int = 0
@@ -74,6 +74,8 @@ class Graph:
     errors: list[str] = field(default_factory=list)
     libraries: set[str] = field(default_factory=set)  # external libraries the pages load (their classes aren't ours)
     projects: list[str] = field(default_factory=list)  # the projects in a combined map (empty for one project)
+    satellite: str = ""  # a project drawn as Claude's core inside the globe (e.g. .claude), or ""
+    touches: dict[str, dict[str, int]] = field(default_factory=dict)  # file id → {"edits", "writes"} by Claude
 
     def add_node(self, node: Node) -> Node:
         """Add a node (the first definition wins if an id repeats)."""
@@ -104,17 +106,39 @@ class Graph:
 # =============================================================================
 # 02  BUILDING THE GRAPH
 # =============================================================================
-def build_graph(root: Path) -> Graph:
-    """Scan every source file under root and link everything together."""
+def build_graph(root: Path, skip: tuple[str, ...] = ()) -> Graph:
+    """Scan every source file under root and link everything together (leaving out names matching `skip`)."""
     root = root.resolve()
-    all_facts = [scan.scan_file(path, root) for path in scan.find_source_files(root)]
+    all_facts = [scan.scan_file(path, root) for path in scan.find_source_files(root, skip)]
     graph = Graph(root=str(root))
     for facts in all_facts:
         add_file_and_definitions(graph, facts)
         graph.libraries |= facts.libraries
     link_names(graph, all_facts)
     link_dom(graph, all_facts)
+    add_folders_and_files(graph, root, skip)
     return graph
+
+
+def add_folders_and_files(graph: Graph, root: Path, skip: tuple[str, ...] = ()) -> None:
+    """One node per folder, plus every other file (images, docs, data: anything that isn't scanned code),
+    each linked from the folder it sits in ("contains"). The project's own folder is "." (named after it)."""
+    folders, files = scan.find_all_files(root, skip)
+    for folder in folders:
+        rel = folder.relative_to(root).as_posix()
+        graph.add_node(Node(folder_id(rel), "folder", rel if rel != "." else root.name, rel, 0, ""))
+        if rel != ".":
+            graph.add_edge(folder_id(Path(rel).parent.as_posix()), folder_id(rel), "contains", CERTAIN)
+    for path in files:
+        rel = path.relative_to(root).as_posix()
+        file_id = f"file:{rel}"
+        graph.add_node(Node(file_id, "file", rel, rel, 0, path.suffix.lstrip(".").lower() or "file"))
+        graph.add_edge(folder_id(Path(rel).parent.as_posix()), file_id, "contains", CERTAIN)
+
+
+def folder_id(rel: str) -> str:
+    """'folder:assets/js', or 'folder:.' for the project's own folder."""
+    return f"folder:{rel or '.'}"
 
 
 def add_file_and_definitions(graph: Graph, facts: scan.FileFacts) -> None:
@@ -157,7 +181,7 @@ def prefixed_id(node_id: str, project: str) -> str:
 def prefixed_node(node: Node, project: str) -> Node:
     """A copy of a node inside a combined map: its id, file (and a file's name) start with the project."""
     in_project = f"{project}/{node.file}" if node.file else ""
-    name = in_project if node.type == "file" else node.name
+    name = {"file": in_project, "folder": in_project.removesuffix("/.")}.get(node.type, node.name)
     return replace(node, id=prefixed_id(node.id, project), file=in_project, name=name)
 
 
@@ -315,9 +339,12 @@ def find_nodes(graph: Graph, query: str) -> list[Node]:
 # 06  QUESTIONS: USES, DEPENDS ON, PATH, HUBS
 # =============================================================================
 def shortest_path(graph: Graph, start: str, goal: str) -> list[Edge]:
-    """The fewest-steps chain of edges linking two nodes (in either direction), or []."""
+    """The fewest-steps chain of edges linking two nodes (in either direction), or []. Folder links are
+    skipped: two files sharing a folder doesn't connect their code."""
     neighbours: dict[str, list[tuple[str, Edge]]] = {}
     for edge in graph.edges.values():
+        if edge.kind == "contains":
+            continue
         neighbours.setdefault(edge.source, []).append((edge.target, edge))
         neighbours.setdefault(edge.target, []).append((edge.source, edge))
     previous: dict[str, tuple[str, Edge] | None] = {start: None}
@@ -426,6 +453,8 @@ def undirected(graph: Graph) -> dict[str, dict[str, float]]:
     """{node: {neighbour: weight}} with every link counted once each way (all nodes, even unlinked)."""
     adjacency: dict[str, dict[str, float]] = {node_id: {} for node_id in sorted(graph.nodes)}
     for edge in graph.edges.values():
+        if edge.kind == "contains":
+            continue  # the folder tree says where code sits, not how it works together
         if edge.source in adjacency and edge.target in adjacency:
             adjacency[edge.source][edge.target] = adjacency[edge.source].get(edge.target, 0) + 1
             adjacency[edge.target][edge.source] = adjacency[edge.target].get(edge.source, 0) + 1

@@ -9,9 +9,12 @@ missing id). Standard library only, no network.
 
 from __future__ import annotations
 
+import base64
 import contextlib
+import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -237,6 +240,56 @@ class CombinedTest(unittest.TestCase):
         self.assertIn("share a folder name", err)
 
 
+class FolderMapTests(unittest.TestCase):
+    """Every folder and file is on the map, linked from the folder it's in."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name) / "site"
+        (root / "assets").mkdir(parents=True)
+        (root / "index.html").write_text('<script src="assets/app.js"></script>', encoding="utf-8")
+        (root / "assets" / "app.js").write_text("function go() {}", encoding="utf-8")
+        (root / "assets" / "logo.png").write_bytes(b"png")
+        (root / "notes.md").write_text("# notes", encoding="utf-8")
+        (root / ".DS_Store").write_bytes(b"junk")
+        (root / "node_modules" / "lib").mkdir(parents=True)
+        (root / "node_modules" / "lib" / "x.js").write_text("", encoding="utf-8")
+        self.graph = ag.build_graph(root)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_folders_and_every_file_are_nodes(self):
+        types = {n.id: n.type for n in self.graph.nodes.values()}
+        self.assertEqual(types["folder:."], "folder")
+        self.assertEqual(self.graph.nodes["folder:."].name, "site")
+        self.assertEqual(types["folder:assets"], "folder")
+        for path in ("index.html", "assets/app.js", "assets/logo.png", "notes.md"):
+            self.assertEqual(types[f"file:{path}"], "file")
+        self.assertEqual(self.graph.nodes["file:assets/logo.png"].lang, "png")
+
+    def test_junk_and_skipped_folders_are_left_out(self):
+        ids = " ".join(self.graph.nodes)
+        self.assertNotIn(".DS_Store", ids)
+        self.assertNotIn("node_modules", ids)
+
+    def test_each_folder_contains_its_items(self):
+        contains = {(e.source, e.target) for e in self.graph.edges.values() if e.kind == "contains"}
+        self.assertIn(("folder:.", "folder:assets"), contains)
+        self.assertIn(("folder:.", "file:index.html"), contains)
+        self.assertIn(("folder:assets", "file:assets/logo.png"), contains)
+
+    def test_folder_links_dont_join_communities_or_paths(self):
+        self.assertEqual(ag.shortest_path(self.graph, "file:notes.md", "file:assets/logo.png"), [])
+        members = {m for c in ag.communities(self.graph) for m in c.members}
+        self.assertNotIn("file:notes.md", members)
+
+    def test_combined_maps_name_folders_after_their_project(self):
+        merged = ag.merge_graphs([self.graph], "combined")
+        self.assertEqual(merged.nodes["folder:site/."].name, "site")
+        self.assertEqual(merged.nodes["folder:site/assets"].name, "site/assets")
+
+
 class CommunityTest(unittest.TestCase):
     """Louvain communities: two tight groups joined by one link split in two, the same way every time."""
 
@@ -354,8 +407,54 @@ class ExportTest(unittest.TestCase):
         self.assertIn("## Health checks", report)
         self.assertIn("`orphan`", report)
         self.assertNotIn('src="app.js"', page)
+        self.assertNotIn('src="core.js"', page)
         self.assertNotIn('href="style.css"', page)
         self.assertIn('"project":"fixture"', page)
+        self.assertIn("window.AtlasCore", page)  # core.js inlined before app.js
+        self.assertLess(page.index("root.AtlasCore = factory()"), page.index("} = window.AtlasCore;"))
+
+    def test_map_page_allows_only_its_own_scripts(self):
+        page = atlas_export.html_page(ag.build_graph(FIXTURE))
+        policy = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', page).group(1)
+        self.assertIn("default-src 'none'", policy)
+        self.assertNotIn("unsafe-inline", policy)
+        for body in re.findall(r"<script>(.*?)</script>", page, flags=re.S):  # every inline script is allowed by hash
+            digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+            self.assertIn(f"'sha256-{digest}'", policy)
+        self.assertLess(page.index("Content-Security-Policy"), page.index("<script"))  # in force before any script
+
+
+class ClaudeTouchesTest(unittest.TestCase):
+    """Files Claude edited or created, read from Claude Code's session logs (only tool names and file paths)."""
+
+    @staticmethod
+    def tool_line(name: str, path: str) -> str:
+        part = {"type": "tool_use", "name": name, "input": {"file_path": path, "old_string": "private text"}}
+        return json.dumps({"type": "assistant", "message": {"content": [part]}})
+
+    def test_counts_edits_and_writes_of_files_on_the_map(self):
+        graph = ag.build_graph(FIXTURE)
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "-Users-me" / "session.jsonl"
+            log.parent.mkdir()
+            lines = [
+                self.tool_line("Edit", str(FIXTURE / "index.html")),
+                self.tool_line("Edit", str(FIXTURE / "index.html")),
+                self.tool_line("Write", str(FIXTURE / "pkg" / "main.py")),
+                self.tool_line("Read", str(FIXTURE / "pkg" / "main.py")),  # reading doesn't count
+                self.tool_line("Edit", "/somewhere/else/secret.py"),  # outside the map: ignored
+                '{"broken json "tool_use" "file_path"',  # a damaged line is skipped
+                json.dumps({"message": {"content": "just text"}}),
+            ]
+            log.write_text("\n".join(lines))
+            touches = atlas.claude_touches(Path(folder), [str(FIXTURE)], graph)
+        self.assertEqual(touches["file:index.html"], {"edits": 2, "writes": 0})
+        self.assertEqual(touches["file:pkg/main.py"], {"edits": 0, "writes": 1})
+        self.assertEqual(len(touches), 2)
+
+    def test_no_logs_means_no_touches(self):
+        graph = ag.build_graph(FIXTURE)
+        self.assertEqual(atlas.claude_touches(Path("/no/such/folder"), [str(FIXTURE)], graph), {})
 
 
 class CliTest(unittest.TestCase):
@@ -440,10 +539,46 @@ class AppLauncherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(atlas_app, "MAPS_DIR", Path(folder)):
             with (
                 mock.patch.object(atlas_app, "my_projects", return_value=[FIXTURE]),
+                mock.patch.object(atlas_app, "SATELLITE", Path(folder) / "no-such-folder"),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 self.assertEqual(atlas_app.main([]), atlas.EXIT_OK)
             self.assertTrue((Path(folder) / atlas_app.COMBINED_NAME / "graph.html").is_file())
+
+    @mock.patch.object(atlas_app, "run_applescript")
+    @mock.patch("webbrowser.open")
+    def test_double_click_adds_the_claude_folder_as_a_moon(self, _opened, _script):
+        with tempfile.TemporaryDirectory() as folder:
+            moon = Path(folder) / ".claude"
+            (moon / "skills").mkdir(parents=True)
+            (moon / "skills" / "tool.py").write_text("def helper():\n    return 1\n")
+            chat = moon / "projects" / "-Users-me" / "0a1b2c3d-1111-2222-3333-444455556666"
+            chat.mkdir(parents=True)
+            (chat / "notes.md").write_text("private")
+            edit = {"type": "tool_use", "name": "Edit", "input": {"file_path": str(FIXTURE / "index.html")}}
+            (chat.parent / "0a1b2c3d-1111-2222-3333-444455556666.jsonl").write_text(
+                json.dumps({"message": {"content": [edit]}})
+            )
+            (chat.parent / "memory").mkdir()
+            (chat.parent / "memory" / "MEMORY.md").write_text("- a note")
+            (moon / "file-history").mkdir()
+            (moon / "file-history" / "old.txt").write_text("x")
+            with (
+                mock.patch.object(atlas_app, "MAPS_DIR", Path(folder) / "maps"),
+                mock.patch.object(atlas_app, "my_projects", return_value=[FIXTURE]),
+                mock.patch.object(atlas_app, "SATELLITE", moon),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(atlas_app.main([]), atlas.EXIT_OK)
+            data = json.loads((Path(folder) / "maps" / atlas_app.COMBINED_NAME / "graph.json").read_text())
+        self.assertEqual(data["meta"]["satellite"], ".claude")
+        ids = {node["id"] for node in data["nodes"]}
+        self.assertIn("file:.claude/skills/tool.py", ids)
+        self.assertIn("file:.claude/projects/-Users-me/memory/MEMORY.md", ids)  # memory notes stay
+        noise = [i for i in ids if "0a1b2c3d" in i or "file-history" in i]  # conversations and history don't
+        self.assertEqual(noise, [])
+        # the session log isn't on the map, but which map files Claude edited is: rays from the core
+        self.assertEqual(data["meta"]["claude_touches"], {"file:fixture/index.html": {"edits": 1, "writes": 0}})
 
     def test_a_missing_folder_shows_the_problem(self):
         with mock.patch.object(atlas_app, "run_applescript") as script:

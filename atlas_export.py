@@ -16,7 +16,10 @@ TABLE OF CONTENTS
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
 from collections import Counter
 from dataclasses import asdict
 from datetime import date
@@ -26,7 +29,8 @@ import atlas_graph as ag
 
 VIEWER_DIR = Path(__file__).resolve().parent / "viewer"
 TYPE_LABELS = {
-    "file": "Files", "function": "Functions", "class": "Classes", "html-id": "HTML ids", "css-class": "CSS classes",
+    "folder": "Folders", "file": "Files", "function": "Functions",
+    "class": "Classes", "html-id": "HTML ids", "css-class": "CSS classes",
 }  # fmt: skip
 
 
@@ -47,6 +51,12 @@ def graph_to_dict(graph: ag.Graph) -> dict:
     meta["communities"] = [{"id": c.id, "name": c.name, "size": len(c.members), "hub": c.hub} for c in groups]
     if graph.projects:
         meta["projects"] = graph.projects  # a combined map: the viewer shows which project a file is in
+    if graph.satellite:
+        meta["satellite"] = graph.satellite  # this project is drawn as Claude's core, inside the globe
+    if graph.touches:
+        meta["claude_touches"] = dict(
+            sorted(graph.touches.items())
+        )  # files Claude edited or created: rays from the core
     return {"meta": meta, "nodes": nodes, "edges": edges, "health": checks, "errors": graph.errors}
 
 
@@ -128,6 +138,7 @@ def html_page(graph: ag.Graph) -> str:
     """viewer/index.html with its CSS, JS and the graph data inlined into one file."""
     template = (VIEWER_DIR / "index.html").read_text(encoding="utf-8")
     css = (VIEWER_DIR / "style.css").read_text(encoding="utf-8")
+    core = (VIEWER_DIR / "core.js").read_text(encoding="utf-8")
     js = (VIEWER_DIR / "app.js").read_text(encoding="utf-8")
     data = safe_script_json(graph_to_dict(graph))
     replacements = {
@@ -135,13 +146,40 @@ def html_page(graph: ag.Graph) -> str:
         '<script id="graphData" type="application/json">{}</script>': (
             f'<script id="graphData" type="application/json">{data}</script>'
         ),
+        '<script src="core.js"></script>': f"<script>\n{core}</script>",
         '<script src="app.js"></script>': f"<script>\n{js}</script>",
     }
     for placeholder, content in replacements.items():
         if placeholder not in template:
             raise ValueError(f"viewer/index.html is missing the placeholder: {placeholder}")
         template = template.replace(placeholder, content)
-    return template
+    return with_content_policy(template)
+
+
+# The page may only run its own inline scripts and styles (by hash), load Google Fonts, and use data: images.
+# Nothing else: no other scripts, no network requests, no forms, no frames.
+CSP_TEMPLATE = (
+    "default-src 'none'; script-src {scripts}; style-src {styles} https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; img-src data:; base-uri 'none'; form-action 'none'"
+)
+
+
+def with_content_policy(page: str) -> str:
+    """Add a Content-Security-Policy that allows exactly this page's inline scripts and styles (by their
+    SHA-256 hashes), so nothing injected into a map could run. The JSON data block isn't a script and needs none."""
+
+    def hashes(pattern: str) -> str:
+        found = re.findall(pattern, page, flags=re.S)
+        return " ".join(
+            f"'sha256-{base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()}'" for body in found
+        )
+
+    scripts = hashes(r"<script>(.*?)</script>")
+    styles = hashes(r"<style>(.*?)</style>")
+    meta = (
+        f'<meta http-equiv="Content-Security-Policy" content="{CSP_TEMPLATE.format(scripts=scripts, styles=styles)}" />'
+    )
+    return page.replace('<meta charset="utf-8" />', f'<meta charset="utf-8" />\n    {meta}', 1)
 
 
 def safe_script_json(data: dict) -> str:
