@@ -2,6 +2,10 @@
 
 Updates to this project, newest first. Older entries come from the Git history (commit hash in brackets).
 
+## 2026-11-14
+### Changed
+- **Light travels along the strands:** every strand carries a small glowing light with a short fading trail, from the nucleus out to its file, taking the strand's colour (warm near the nucleus, blue near the file); Claude's strands carry two brighter, faster lights. Moves while the spin is on, freezes when it's off (S); the map repaints 30 times a second while spinning (was 20) to keep it smooth. (not pushed yet)
+
 ## 2026-11-13
 ### Changed
 - **The globe is painted on one canvas** instead of ~3,000 SVG dots: turning stays at a steady 60 frames a second on the Project map, and it still draws only when something moves (no spin, nothing running while it sits still). (4f34296)

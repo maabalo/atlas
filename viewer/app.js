@@ -103,6 +103,11 @@
   const STRAND_BEND = 0.32; // how far a strand curves sideways, × its length (each its own, the same every time)
   const STRAND_SWAY = { reach: 110, push: 46, ease: 0.14 }; // the cursor bends strands near it (px), easing back
   const STRAND_GROW_MS = 2200; // the strands grow out from the nucleus once, when the map opens
+  // Light travelling along the strands, from the nucleus out to each file (only while the spin is on)
+  const LIGHT_TRIP_S = { plain: 6.5, claude: 4.5 }; // seconds for a light to cross its strand
+  const LIGHT_TAIL = 0.09; // a light's fading tail, as a share of its strand
+  const LIGHT_TAIL_STEPS = 4; // fade steps along a tail (one stroke each, for all lights together)
+  const LIGHT_ALPHA = { plain: 0.55, claude: 1 }; // Claude's strands carry brighter lights (two each)
   const CORE_SPIN = 0.02; // radians a second the other way from the globe's spin, so the two layers drift apart
   const RAY_COLOR = '#c9b8ff'; // pastel lavender
   const RAY_ALPHA = { min: 0.3, max: 0.8, far: 0.45, dimmed: 0.05, hot: 0.95 }; // more edits = brighter
@@ -174,8 +179,8 @@
   // button, or S, stops it all)
   const SPIN_KEY = 'atlas-spin';
   const SPIN_SPEED = 0.01; // radians a second: the globe turns once in about 10½ minutes (user's choice)
-  const MOTION_FPS = 20; // while only the spin moves, repaint this often (slow motion looks smooth at 20 and keeps
-  // the Mac cool); dragging and zooming repaint at full speed; nothing when the spin is off
+  const MOTION_FPS = 30; // while only the spin moves, repaint this often: smooth for the travelling strand lights
+  // (user's request); dragging and zooming repaint at full speed; nothing when the spin is off
   /** Dot colour = language, in pastels (folders off-white; anything not listed is OTHER). */
   const SKY_REACH = 0.55; // how far the sky spreads, × the map's diagonal (just past its corners)
   const STAR_SEED = 20261108; // the same sky every time
@@ -324,6 +329,7 @@
     coreTurn: 0, // radians the core has turned (against the globe's spin)
     pointer: null, // where the cursor is over the map (px), for the strands' sway
     growStart: 0, // when the strands began growing out (ms)
+    lightClock: 0, // seconds the strand lights have travelled (only while spinning, so they freeze when it stops)
     lastTick: 0, // the spin's last frame (ms), to move on by the time passed
     mode: 'globe', // 'globe' or 'web' (section 06b)
     views: {}, // each mode's own zoom and position, kept while the other is shown
@@ -725,6 +731,7 @@
     toScreen(0, 0, 0);
     const [cx, cy] = [spot.x, spot.y];
     let moving = grow < 1;
+    const lights = { tails: Array.from({ length: LIGHT_TAIL_STEPS }, () => new Path2D()), heads: [] };
     strands.forEach((strand) => {
       const i = strand.index;
       toScreen(paint.world[i * 3], paint.world[i * 3 + 1], paint.world[i * 3 + 2]);
@@ -740,6 +747,7 @@
       const [kx, ky] = [mx + nx * bend * 2, my + ny * bend * 2]; // the control point (the curve passes halfway)
       const group = focus ? (paint.near[i] ? 2 : 3) : strand.weight > 0 ? 2 : far ? 1 : 0;
       addStrandPieces(paths[group], cx, cy, kx, ky, ex, ey, grow);
+      if (grow >= 1) addLights(lights, strand, group, [cx, cy, kx, ky, ex, ey]);
     });
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
@@ -756,10 +764,70 @@
         ctx.stroke(path);
       });
     });
+    drawLights(ctx, lights);
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineCap = 'butt';
     ctx.globalAlpha = 1;
     if (moving) drawSoon(); // still growing or swaying: keep painting until it settles
+  }
+
+  /** Add this strand's travelling lights: one (two on Claude's strands, evenly apart), each at its own place
+      along the curve (offset by the strand's bend, so they're never in step). Faded strands carry none. */
+  function addLights(lights, strand, group, curve) {
+    if (group === 3) return; // dimmed while something else is picked
+    const claude = group === 2;
+    const count = claude ? 2 : 1;
+    const trip = claude ? LIGHT_TRIP_S.claude : LIGHT_TRIP_S.plain;
+    for (let n = 0; n < count; n++) {
+      const t = (((state.lightClock / trip + (strand.bend + 1) * 3.7 + n / count) % 1) + 1) % 1;
+      const alpha = (claude ? LIGHT_ALPHA.claude : LIGHT_ALPHA.plain) * (group === 1 ? STRAND_ALPHA.far : 1);
+      for (let k = 0; k < LIGHT_TAIL_STEPS; k++) {
+        const a = Math.max(0, t - LIGHT_TAIL * (1 - k / LIGHT_TAIL_STEPS));
+        const b = Math.max(0, t - LIGHT_TAIL * (1 - (k + 1) / LIGHT_TAIL_STEPS));
+        if (b > a) addCurveSection(lights.tails[k], curve, a, b);
+      }
+      lights.heads.push({ at: curvePoint(curve, t), t, alpha, claude });
+    }
+  }
+
+  /** The point `t` (0 → 1) along a quadratic curve [ax, ay, kx, ky, bx, by]. */
+  function curvePoint([ax, ay, kx, ky, bx, by], t) {
+    const [u, v, w] = [(1 - t) * (1 - t), 2 * t * (1 - t), t * t];
+    return [u * ax + v * kx + w * bx, u * ay + v * ky + w * by];
+  }
+
+  /** Add the exact section of a quadratic curve between t = a and t = b to a path. */
+  function addCurveSection(path, curve, a, b) {
+    const [ax, ay, kx, ky, bx, by] = curve;
+    const [sa, sb] = [curvePoint(curve, a), curvePoint(curve, b)];
+    const [qa, qb] = [(1 - a) * (1 - b), (1 - a) * b + a * (1 - b)];
+    path.moveTo(sa[0], sa[1]);
+    path.quadraticCurveTo(qa * ax + qb * kx + a * b * bx, qa * ay + qb * ky + a * b * by, sb[0], sb[1]);
+  }
+
+  /** Paint the lights: tails that fade and thin behind each head (shared strokes), then each head as a small
+      glow in its strand's colour at that point (warm near the nucleus, blue near the file) with a white centre. */
+  function drawLights(ctx, { tails, heads }) {
+    if (!heads.length) return;
+    tails.forEach((path, k) => {
+      const f = (k + 1) / LIGHT_TAIL_STEPS; // 1 at the head
+      ctx.strokeStyle = '#fff6e8';
+      ctx.lineWidth = 0.5 + 1.1 * f;
+      ctx.globalAlpha = 0.5 * f * f;
+      ctx.stroke(path);
+    });
+    heads.forEach(({ at: [x, y], t, alpha, claude }) => {
+      const radius = claude ? 4.5 : 3;
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      glow.addColorStop(0, 'rgba(255, 252, 240, 1)');
+      glow.addColorStop(0.35, STRAND_COLORS[Math.min(STRAND_PIECES - 1, Math.floor(t * STRAND_PIECES))]);
+      glow.addColorStop(1, 'rgba(128, 178, 240, 0)');
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 
   /** How far the cursor pushes a strand sideways (px, along its normal): strands within STRAND_SWAY.reach of the
@@ -780,16 +848,7 @@
     for (let k = 0; k < STRAND_PIECES; k++) {
       const a = k / STRAND_PIECES;
       if (a >= grow) break;
-      const b = Math.min(grow, (k + 1) / STRAND_PIECES);
-      const at = (t) => [
-        (1 - t) * (1 - t) * ax + 2 * t * (1 - t) * kx + t * t * bx,
-        (1 - t) * (1 - t) * ay + 2 * t * (1 - t) * ky + t * t * by,
-      ];
-      const [sa, sb] = [at(a), at(b)];
-      const [qa, qb] = [(1 - a) * (1 - b), (1 - a) * b + a * (1 - b)];
-      const control = [qa * ax + qb * kx + a * b * bx, qa * ay + qb * ky + a * b * by];
-      pieces[k].moveTo(sa[0], sa[1]);
-      pieces[k].quadraticCurveTo(control[0], control[1], sb[0], sb[1]);
+      addCurveSection(pieces[k], [ax, ay, kx, ky, bx, by], a, Math.min(grow, (k + 1) / STRAND_PIECES));
     }
   }
 
@@ -987,6 +1046,7 @@
         multiply(state.camera.rotation, turnMatrix(seconds * SPIN_SPEED, 0)),
       );
       if (SATELLITE) state.coreTurn = (state.coreTurn - seconds * (SPIN_SPEED + CORE_SPIN)) % (2 * Math.PI); // against the globe
+      state.lightClock += seconds;
       if (now - state.lastDraw >= 1000 / MOTION_FPS - 4) drawMap(); // a little early, so timing jitter doesn't skip one
     }
     state.spinFrame = requestAnimationFrame(animateSpin);
