@@ -4,7 +4,7 @@ Updates to this project, newest first. Older entries come from the Git history (
 
 ## 2026-11-14
 ### Changed
-- **Light travels along the strands:** every strand carries a small glowing light with a short fading trail, from the nucleus out to its file, taking the strand's colour (warm near the nucleus, blue near the file); Claude's strands carry two brighter, faster lights. Moves while the spin is on, freezes when it's off (S); the map repaints 30 times a second while spinning (was 20) to keep it smooth. (not pushed yet)
+- **Light travels along the strands:** every strand carries a small glowing light with a short fading trail, from the nucleus out to its file, taking the strand's colour (warm near the nucleus, blue near the file); Claude's strands carry two brighter, faster lights. Moves while the spin is on, freezes when it's off (S); the map repaints 30 times a second while spinning (was 20) to keep it smooth. (53cdade)
 
 ## 2026-11-13
 ### Changed
