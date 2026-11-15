@@ -4,8 +4,8 @@ Updates to this project, newest first. Older entries come from the Git history (
 
 ## 2026-11-15
 ### Removed
-- **New dust when Atlas opens and the live map, undone (your request):** both features from 5e16f13 are reverted, so the Mac app works as before: it rebuilds the map on each double-click and opens it as a file, with no background server and a Dock icon again. (not pushed yet)
-- **The lights travelling along the strands** (added 2026-11-14 in 53cdade). The strands, their colours, sway and opening growth stay. With nothing travelling, the spin repaints 20 times a second again (was 30), so it's lighter on the Mac. (not pushed yet)
+- **New dust when Atlas opens and the live map, undone (your request):** both features from 5e16f13 are reverted, so the Mac app works as before: it rebuilds the map on each double-click and opens it as a file, with no background server and a Dock icon again. (b42a5ca)
+- **The lights travelling along the strands** (added 2026-11-14 in 53cdade). The strands, their colours, sway and opening growth stay. With nothing travelling, the spin repaints 20 times a second again (was 30), so it's lighter on the Mac. (b42a5ca)
 
 ## 2026-11-14
 ### Changed
