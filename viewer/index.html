@@ -165,6 +165,23 @@
           <ul id="legendList" class="legend-list"></ul>
         </details>
         <p id="mapEmpty" class="map-empty" hidden>Nothing to show: this map is empty.</p>
+        <!-- What's new since the map was last built (app.js showChanges): its dust flies in and keeps a halo -->
+        <div id="newBanner" class="new-banner" hidden>
+          <span class="new-spark" aria-hidden="true">✨</span>
+          <span id="newText" class="new-text"></span>
+          <button id="newShowBtn" class="new-show" type="button" data-pick="new:new" aria-pressed="false">
+            show
+          </button>
+          <button
+            id="newCloseBtn"
+            class="icon-btn new-close"
+            type="button"
+            aria-label="Hide what's new"
+            title="Hide"
+          >
+            <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+          </button>
+        </div>
         <div class="map-controls" role="group" aria-label="View">
           <button id="zoomInBtn" class="icon-btn" type="button" aria-label="Zoom in" title="Zoom in (+)">
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-plus" /></svg>

@@ -8,6 +8,9 @@ build` it adds only what a double-click needs: finding the projects, a place to
 save maps (the app's own folder is read-only), and error messages in a dialog
 because an app has no Terminal to print to.
 
+The map stays live while it's open (atlas_live.py): new projects, files and code
+appear on it by themselves. Double-clicking again while it's open just shows it.
+
 Dialogs use macOS's own osascript, so Atlas still needs only the standard library.
 Text is passed as arguments, never pasted into the script, so a folder or error
 containing quotes can't change what runs.
@@ -19,9 +22,11 @@ import contextlib
 import io
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 import atlas
+import atlas_live
 
 MAPS_DIR = Path.home() / "Library" / "Application Support" / "Atlas" / "maps"
 PROJECTS_HOME = Path.home() / "Documents" / "Project"
@@ -111,8 +116,21 @@ def choose_target(args: list[str]) -> tuple[list[Path], str] | None:
     return single_project(folder) if folder else None
 
 
+def projects_now(projects: list[Path], name: str) -> list[Path]:
+    """What to map right now: all your projects again for the combined map (so new ones join), else the same."""
+    return my_projects() if name == COMBINED_NAME else projects
+
+
+def watched_folders(projects: list[Path], name: str) -> list[tuple[Path, tuple[str, ...]]]:
+    """The folders a live map watches, with the same skips as the map: the projects, and Claude's core."""
+    folders: list[tuple[Path, tuple[str, ...]]] = [(project, ()) for project in projects_now(projects, name)]
+    if name == COMBINED_NAME and SATELLITE.is_dir():
+        folders.append((SATELLITE, SATELLITE_SKIP))
+    return folders
+
+
 def build_map(projects: list[Path], name: str) -> str | None:
-    """Build the map and open it; returns the problem as text, or None if it worked."""
+    """Build the map (not opened: serve_map shows it); returns the problem as text, or None if it worked."""
     errors = io.StringIO()
     folders = [str(project) for project in projects]
     moon = []
@@ -126,20 +144,36 @@ def build_map(projects: list[Path], name: str) -> str | None:
         if logs.is_dir():
             moon += ["--claude-log", str(logs)]
     with contextlib.redirect_stderr(errors):
-        code = atlas.main(["build", *folders, *moon, "--name", name, "--out", str(MAPS_DIR / name), "--open"])
+        code = atlas.main(["build", *folders, *moon, "--name", name, "--out", str(MAPS_DIR / name)])
     return None if code == atlas.EXIT_OK else errors.getvalue().strip() or "Something went wrong."
 
 
+def serve_map(projects: list[Path], name: str) -> None:
+    """Open the map in the browser and keep it live until it's closed (rebuilt when its folders change)."""
+    atlas_live.serve(
+        MAPS_DIR / name,
+        rebuild=lambda: build_map(projects_now(projects, name), name),
+        roots=lambda: watched_folders(projects, name),
+        open_page=webbrowser.open,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Work out what to map, then make the map."""
+    """Work out what to map; show the live map if it's already open, else make the map and keep it live."""
     args = sys.argv[1:] if argv is None else argv
     try:
         target = choose_target(args)
         if target is None:
             return atlas.EXIT_OK
         projects, name = target
+        running = atlas_live.running_url(MAPS_DIR / name)
+        if running:  # already open and live: just show it again
+            webbrowser.open(running)
+            return atlas.EXIT_OK
         notify_started(name)
         problem = build_map(projects, name)
+        if not problem:
+            serve_map(projects, name)
     except (RuntimeError, OSError) as error:
         problem = str(error)
     if problem:
