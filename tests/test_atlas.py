@@ -4,8 +4,7 @@ Tests for Atlas — run from the Code_Map folder with:  python3 -m unittest -v
 Most tests map tests/fixture/, a tiny project where every tricky case has a
 known answer (calls inside template literals, spread calls, module imports,
 decorators, default arguments, dynamic CSS class names, unused code, a
-missing id). Standard library only; the only network use is a live map's
-server on 127.0.0.1 (this computer), started and stopped by its own tests.
+missing id). Standard library only, no network.
 """
 
 from __future__ import annotations
@@ -16,14 +15,10 @@ import hashlib
 import io
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
-import urllib.error
-import urllib.request
 from pathlib import Path
 from unittest import mock
 
@@ -34,7 +29,6 @@ import atlas  # noqa: E402
 import atlas_app  # noqa: E402
 import atlas_export  # noqa: E402
 import atlas_graph as ag  # noqa: E402
-import atlas_live  # noqa: E402
 import atlas_mcp  # noqa: E402
 import atlas_scan as scan  # noqa: E402
 
@@ -419,40 +413,10 @@ class ExportTest(unittest.TestCase):
         self.assertIn("window.AtlasCore", page)  # core.js inlined before app.js
         self.assertLess(page.index("root.AtlasCore = factory()"), page.index("} = window.AtlasCore;"))
 
-    def test_a_second_build_lists_whats_new_since_the_first(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            project = Path(tmp) / "fixture"
-            shutil.copytree(FIXTURE, project)
-            out = Path(tmp) / "map"
-            first = atlas_export.write_outputs(ag.build_graph(project), out)
-            self.assertNotIn("changes", json.loads(first["json"].read_text(encoding="utf-8"))["meta"])  # nothing before
-            (project / "added.py").write_text("def brand_new():\n    return 1\n")
-            (project / "index.html").unlink()
-            paths = atlas_export.write_outputs(ag.build_graph(project), out)
-            changes = json.loads(paths["json"].read_text(encoding="utf-8"))["meta"]["changes"]
-            page = paths["html"].read_text(encoding="utf-8")
-            leftovers = [path.name for path in out.iterdir() if path.name.endswith(".tmp")]
-        self.assertIn("file:added.py", changes["new"])  # a single map: ids are relative to it
-        self.assertIn("fn:added.py::brand_new", changes["new"])
-        self.assertGreater(changes["gone"], 0)  # index.html and its ids
-        self.assertIn('"changes":{"new":', page)  # the page has them too, to show them arriving
-        self.assertEqual(leftovers, [])  # written in one step: no temporary files left behind
-
-    def test_an_unchanged_or_unreadable_earlier_map_means_no_changes(self):
-        nodes = [{"id": "file:a.py"}]
-        with tempfile.TemporaryDirectory() as tmp:
-            earlier = Path(tmp) / "graph.json"
-            earlier.write_text(json.dumps({"nodes": nodes}))
-            self.assertEqual(atlas_export.changes_since(earlier, nodes), {})
-            earlier.write_text("not json")
-            self.assertEqual(atlas_export.changes_since(earlier, nodes), {})
-        self.assertEqual(atlas_export.changes_since(Path("/no/such/graph.json"), nodes), {})
-
     def test_map_page_allows_only_its_own_scripts(self):
         page = atlas_export.html_page(ag.build_graph(FIXTURE))
         policy = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', page).group(1)
         self.assertIn("default-src 'none'", policy)
-        self.assertIn("connect-src 'self'", policy)  # a live map may ask where it came from, nowhere else
         self.assertNotIn("unsafe-inline", policy)
         for body in re.findall(r"<script>(.*?)</script>", page, flags=re.S):  # every inline script is allowed by hash
             digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
@@ -533,37 +497,7 @@ class CliTest(unittest.TestCase):
 
 
 class AppLauncherTests(unittest.TestCase):
-    """The Mac app's launcher (atlas_app.py), with macOS dialogs replaced by fakes. The live server is replaced
-    too: it just opens the page (LiveMapTests test the real one)."""
-
-    def setUp(self):
-        def fake_serve(folder, rebuild, roots, open_page):
-            open_page("http://127.0.0.1:9/")
-
-        patcher = mock.patch.object(atlas_app.atlas_live, "serve", side_effect=fake_serve)
-        self.serve = patcher.start()
-        self.addCleanup(patcher.stop)
-
-    @mock.patch("webbrowser.open")
-    def test_a_map_thats_already_live_is_shown_again_not_rebuilt(self, opened):
-        with (
-            mock.patch.object(atlas_app.atlas_live, "running_url", return_value="http://127.0.0.1:5555/"),
-            mock.patch.object(atlas_app, "build_map") as build,
-        ):
-            self.assertEqual(atlas_app.main([str(FIXTURE)]), atlas.EXIT_OK)
-        opened.assert_called_once_with("http://127.0.0.1:5555/")
-        build.assert_not_called()
-        self.serve.assert_not_called()
-
-    def test_the_combined_map_watches_every_project_and_the_core(self):
-        with (
-            mock.patch.object(atlas_app, "my_projects", return_value=[FIXTURE]),
-            mock.patch.object(atlas_app, "SATELLITE", FIXTURE),
-        ):
-            folders = atlas_app.watched_folders([], atlas_app.COMBINED_NAME)
-            single = atlas_app.watched_folders([FIXTURE], "fixture")
-        self.assertEqual(folders, [(FIXTURE, ()), (FIXTURE, atlas_app.SATELLITE_SKIP)])
-        self.assertEqual(single, [(FIXTURE, ())])  # one folder's map watches only that folder
+    """The Mac app's launcher (atlas_app.py), with macOS dialogs replaced by fakes."""
 
     def test_cancelling_the_folder_picker_does_nothing(self):
         result = subprocess.CompletedProcess([], 1, "", "execution error: User canceled. (-128)")
@@ -650,90 +584,6 @@ class AppLauncherTests(unittest.TestCase):
         with mock.patch.object(atlas_app, "run_applescript") as script:
             self.assertEqual(atlas_app.main(["/no/such/folder"]), atlas.EXIT_ERROR)
         self.assertIn("/no/such/folder", script.call_args.args[-1])
-
-
-class LiveMapTests(unittest.TestCase):
-    """A live map (atlas_live.py): noticing changes, rebuilding once they settle, and the local server."""
-
-    def test_the_fingerprint_changes_with_the_files_but_not_with_skipped_ones(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "app.py").write_text("x = 1\n")
-            (root / "cache").mkdir()
-            roots = [(root, ("cache",))]
-            before = atlas_live.folder_signature(roots)
-            self.assertEqual(atlas_live.folder_signature(roots), before)  # nothing changed
-            (root / "cache" / "noise.txt").write_text("skipped")
-            self.assertEqual(atlas_live.folder_signature(roots), before)  # skipped folders don't count
-            (root / "new.py").write_text("y = 2\n")
-            self.assertNotEqual(atlas_live.folder_signature(roots), before)
-
-    def test_the_map_version_ignores_moved_lines_but_not_new_items(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "graph.json"
-            node = {"id": "fn:a.py::f", "line": 1}
-            path.write_text(json.dumps({"nodes": [node], "edges": []}))
-            first = atlas_live.map_version(path)
-            path.write_text(json.dumps({"nodes": [{**node, "line": 9}], "edges": []}))
-            self.assertEqual(atlas_live.map_version(path), first)
-            path.write_text(json.dumps({"nodes": [node, {"id": "fn:a.py::g"}], "edges": []}))
-            self.assertNotEqual(atlas_live.map_version(path), first)
-
-    def test_a_change_is_rebuilt_once_it_settles_and_watching_stops_when_the_page_is_gone(self):
-        clock = [0.0]
-        signatures = iter(["a", "a", "b", "b", "b", "b"])  # first look, then each check
-        live = atlas_live.LiveMap(Path("/no/such/map"))
-        live.last_seen = 0.0
-        rebuilt = []
-
-        def sleep(seconds):
-            clock[0] += 20  # each check: past the gap between rebuilds
-            if clock[0] > 80:
-                live.last_seen = -atlas_live.IDLE_SECONDS  # the page was closed: nobody asks any more
-
-        with mock.patch.object(atlas_live, "folder_signature", side_effect=lambda roots: next(signatures)):
-            live.last_seen = 1e9  # a page keeps asking until the sleep above says otherwise
-            atlas_live.watch(live, lambda: rebuilt.append(1), lambda: [], sleep=sleep, clock=lambda: clock[0])
-        self.assertEqual(rebuilt, [1])  # "b" seen, then still "b": one rebuild, not one per check
-
-    def test_the_server_answers_only_this_macs_own_address(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp)
-            (folder / "graph.html").write_text("<p>map</p>")
-            (folder / "graph.json").write_text(json.dumps({"nodes": [{"id": "file:a.py"}], "edges": []}))
-            live = atlas_live.LiveMap(folder)
-            server = atlas_live.LocalServer((atlas_live.HOST, 0), atlas_live.MapRequests)
-            server.live = live
-            port = server.server_address[1]
-            live.hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            base = f"http://127.0.0.1:{port}"
-
-            def status(path, host=None):
-                request = urllib.request.Request(base + path, headers={"Host": host} if host else {})
-                try:
-                    with direct.open(request, timeout=2) as answer:
-                        return answer.status, answer.read(), answer.headers
-                except urllib.error.HTTPError as error:
-                    with error:  # closes the error's response
-                        return error.code, b"", error.headers
-
-            try:
-                code, body, headers = status("/")
-                self.assertEqual((code, body), (200, b"<p>map</p>"))
-                self.assertEqual(headers["Cache-Control"], "no-store")
-                self.assertEqual(status("/version")[1].decode(), live.version)
-                self.assertEqual(status("/graph.json")[0], 404)  # only the page, its version and a ping
-                self.assertEqual(status("/../secret")[0], 404)
-                self.assertEqual(status("/", host="evil.example")[0], 403)  # a look-alike domain (DNS rebinding)
-                (folder / atlas_live.LIVE_FILE).write_text(json.dumps({"port": port}))
-                self.assertEqual(atlas_live.running_url(folder), f"http://127.0.0.1:{port}/")
-            finally:
-                server.shutdown()
-                server.server_close()
-            self.assertIsNone(atlas_live.running_url(folder))  # stopped: nothing answers
-        self.assertIsNone(atlas_live.running_url(Path("/no/such/map")))
 
 
 if __name__ == "__main__":

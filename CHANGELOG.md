@@ -3,13 +3,9 @@
 Updates to this project, newest first. Older entries come from the Git history (commit hash in brackets).
 
 ## 2026-11-15
-### Added
-- **New dust appears when Atlas opens:** every build compares the map with the last one (`meta.changes`: what's new, how many removed). When the map opens, the new dust flies out of the nucleus to its place, one speck after another, and keeps a soft mint halo; a note at the bottom says "New since last time: 1 project · 24 files · 80 code parts", with **show** (only the new items, named) and **✕** (put it away). No trip with reduced motion, just the halos. (5e16f13)
-- **Live map while it's open (Mac app):** the app now serves the map from this Mac only and checks your projects every 3 seconds; once a change settles it rebuilds (at most every 10 s, ~4 s for the Project map) and the page reloads itself where it was, so new projects, files and code appear while you watch. Saving a file without adding or removing anything doesn't reload. Double-clicking again while it's open just shows it. No Dock icon; it stops about 3 minutes after the map's tab is closed. New `atlas_live.py`, with tests. (5e16f13)
-### Security
-- The live server binds to 127.0.0.1 only, answers only requests addressed to `127.0.0.1`/`localhost` (blocks DNS rebinding), serves only the page, its version and a ping, sends `no-store`, `nosniff`, `no-referrer` and same-origin headers, and skips proxies. The map's Content-Security-Policy adds only `connect-src 'self'`. (5e16f13)
-### Fixed
-- Map files are written in one step (temporary file, then renamed), so a live map never serves half a page. (5e16f13)
+### Removed
+- **New dust when Atlas opens and the live map, undone (your request):** both features from 5e16f13 are reverted, so the Mac app works as before: it rebuilds the map on each double-click and opens it as a file, with no background server and a Dock icon again. (not pushed yet)
+- **The lights travelling along the strands** (added 2026-11-14 in 53cdade). The strands, their colours, sway and opening growth stay. With nothing travelling, the spin repaints 20 times a second again (was 30), so it's lighter on the Mac. (not pushed yet)
 
 ## 2026-11-14
 ### Changed

@@ -11,7 +11,7 @@ TABLE OF CONTENTS
   01  JSON
   02  Markdown report
   03  Interactive HTML page
-  04  Writing all three (and what's new since the last time)
+  04  Writing all three
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import re
 from collections import Counter
 from dataclasses import asdict
@@ -135,13 +134,13 @@ def report_health(graph: ag.Graph) -> list[str]:
 # =============================================================================
 # 03  INTERACTIVE HTML PAGE
 # =============================================================================
-def html_page(graph: ag.Graph, data: dict | None = None) -> str:
-    """viewer/index.html with its CSS, JS and the graph data (`data`, or the graph's own) inlined into one file."""
+def html_page(graph: ag.Graph) -> str:
+    """viewer/index.html with its CSS, JS and the graph data inlined into one file."""
     template = (VIEWER_DIR / "index.html").read_text(encoding="utf-8")
     css = (VIEWER_DIR / "style.css").read_text(encoding="utf-8")
     core = (VIEWER_DIR / "core.js").read_text(encoding="utf-8")
     js = (VIEWER_DIR / "app.js").read_text(encoding="utf-8")
-    data = safe_script_json(data if data is not None else graph_to_dict(graph))
+    data = safe_script_json(graph_to_dict(graph))
     replacements = {
         '<link rel="stylesheet" href="style.css" />': f"<style>\n{css}</style>",
         '<script id="graphData" type="application/json">{}</script>': (
@@ -157,12 +156,11 @@ def html_page(graph: ag.Graph, data: dict | None = None) -> str:
     return with_content_policy(template)
 
 
-# The page may only run its own inline scripts and styles (by hash), load Google Fonts, use data: images, and
-# ask the place it came from whether it changed (a live map, served by atlas_live.py on this Mac only).
-# Nothing else: no other scripts, no other network requests, no forms, no frames.
+# The page may only run its own inline scripts and styles (by hash), load Google Fonts, and use data: images.
+# Nothing else: no other scripts, no network requests, no forms, no frames.
 CSP_TEMPLATE = (
     "default-src 'none'; script-src {scripts}; style-src {styles} https://fonts.googleapis.com; "
-    "font-src https://fonts.gstatic.com; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    "font-src https://fonts.gstatic.com; img-src data:; base-uri 'none'; form-action 'none'"
 )
 
 
@@ -192,38 +190,14 @@ def safe_script_json(data: dict) -> str:
 # =============================================================================
 # 04  WRITING ALL THREE
 # =============================================================================
-def changes_since(previous: Path, nodes: list[dict]) -> dict:
-    """What's new since the map was last written here: {"new": [node ids], "gone": how many left}, or {} when
-    nothing changed or there's no earlier map to compare with (the first time, or it can't be read)."""
-    try:
-        before = {node["id"] for node in json.loads(previous.read_text(encoding="utf-8"))["nodes"]}
-    except (OSError, ValueError, KeyError, TypeError):
-        return {}
-    now = {node["id"] for node in nodes}
-    new, gone = sorted(now - before), len(before - now)
-    return {"new": new, "gone": gone} if new or gone else {}
-
-
-def write_atomically(path: Path, content: str) -> None:
-    """Write a file in one step (a temporary file, then renamed), so a live map never serves half a page."""
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(content, encoding="utf-8")
-    os.replace(temporary, path)
-
-
 def write_outputs(graph: ag.Graph, out_dir: Path) -> dict[str, Path]:
-    """Write graph.json, GRAPH_REPORT.md and graph.html into out_dir; return their paths. When a map was written
-    there before, meta.changes lists what's new since then (the viewer shows it arriving)."""
+    """Write graph.json, GRAPH_REPORT.md and graph.html into out_dir; return their paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    data = graph_to_dict(graph)
-    changes = changes_since(out_dir / "graph.json", data["nodes"])
-    if changes:
-        data["meta"]["changes"] = changes
     files = {
-        "json": (out_dir / "graph.json", json.dumps(data, indent=1, ensure_ascii=False)),
+        "json": (out_dir / "graph.json", json.dumps(graph_to_dict(graph), indent=1, ensure_ascii=False)),
         "report": (out_dir / "GRAPH_REPORT.md", report_markdown(graph)),
-        "html": (out_dir / "graph.html", html_page(graph, data)),
+        "html": (out_dir / "graph.html", html_page(graph)),
     }
     for path, content in files.values():
-        write_atomically(path, content)
+        path.write_text(content, encoding="utf-8")
     return {key: path for key, (path, _content) in files.items()}

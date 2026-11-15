@@ -748,48 +748,6 @@ kbd {
   pointer-events: none;
 }
 
-/* What's new since the map was last built: a small note above the hint, with "show" and a close button */
-.new-banner {
-  position: absolute;
-  bottom: calc(36px + env(safe-area-inset-bottom));
-  left: calc(12px + env(safe-area-inset-left));
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  max-width: calc(100% - 90px); /* never under the zoom buttons */
-  padding: 2px 2px 2px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: color-mix(in sRGB, var(--surface) 88%, transparent);
-  color: var(--text);
-  font: 11.5px/1.4 var(--font-mono);
-}
-
-.new-text {
-  min-width: 0;
-}
-
-.new-show {
-  flex: none;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
-}
-
-.new-show:hover,
-.new-show[aria-pressed='true'] {
-  background: var(--hover);
-}
-
-.new-close {
-  flex: none;
-}
-
 /* Phones with both side panels closed: the globe fills the screen below the top bar */
 @media (width < 1000px) {
   .layout:not(.has-numbers) .map {

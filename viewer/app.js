@@ -104,16 +104,6 @@
   const STRAND_SWAY = { reach: 110, push: 46, ease: 0.14 }; // the cursor bends strands near it (px), easing back
   const STRAND_GROW_MS = 2200; // the strands grow out from the nucleus once, when the map opens
   // Light travelling along the strands, from the nucleus out to each file (only while the spin is on)
-  const LIGHT_TRIP_S = { plain: 6.5, claude: 4.5 }; // seconds for a light to cross its strand
-  const LIGHT_TAIL = 0.09; // a light's fading tail, as a share of its strand
-  const LIGHT_TAIL_STEPS = 4; // fade steps along a tail (one stroke each, for all lights together)
-  const LIGHT_ALPHA = { plain: 0.55, claude: 1 }; // Claude's strands carry brighter lights (two each)
-  const ARRIVE_DELAY_MS = 900; // new dust sets off from the nucleus this long after the map opens…
-  const ARRIVE_SPREAD_MS = 1400; // …one speck after another over this long…
-  const ARRIVE_MS = 1800; // …and each takes this long to reach its place
-  const NEW_GLOW = { color: '157, 255, 214', soft: 0.16, ring: 0.55, flash: 0.9, px: 6 }; // mint halo round new dust
-  const LIVE_CHECK_MS = 3000; // a live map (served by Atlas.app) asks whether it changed this often
-  const LIVE_VIEW_KEY = 'atlas-live-view'; // the view kept across a live map's reload (this tab only)
   const CORE_SPIN = 0.02; // radians a second the other way from the globe's spin, so the two layers drift apart
   const RAY_COLOR = '#c9b8ff'; // pastel lavender
   const RAY_ALPHA = { min: 0.3, max: 0.8, far: 0.45, dimmed: 0.05, hot: 0.95 }; // more edits = brighter
@@ -185,7 +175,7 @@
   // button, or S, stops it all)
   const SPIN_KEY = 'atlas-spin';
   const SPIN_SPEED = 0.01; // radians a second: the globe turns once in about 10½ minutes (user's choice)
-  const MOTION_FPS = 30; // while only the spin moves, repaint this often: smooth for the travelling strand lights
+  const MOTION_FPS = 20; // while only the spin moves, repaint this often (low, so the Mac stays cool)
   // (user's request); dragging and zooming repaint at full speed; nothing when the spin is off
   /** Dot colour = language, in pastels (folders off-white; anything not listed is OTHER). */
   const SKY_REACH = 0.55; // how far the sky spreads, × the map's diagonal (just past its corners)
@@ -215,8 +205,6 @@
   const PROJECTS = (DATA.meta.projects || []).length > 1 ? DATA.meta.projects : []; // combined maps only
   const SATELLITE = DATA.meta.satellite || ''; // the project drawn as Claude's core (e.g. ".claude"), or ''
   const TOUCHES = DATA.meta.claude_touches || {}; // file id → {edits, writes}: files Claude edited or created
-  const CHANGES = DATA.meta.changes || {}; // since this map was last built: {new: [ids], gone: how many}
-  const NEW_IDS = new Set((CHANGES.new || []).filter((id) => nodeById.has(id))); // they arrive when the map opens
   let rays = []; // globe files Claude touched: {index (speck), weight 0–1 by how often} (set by makeRays)
   let strands = []; // every globe file and folder: {index, weight (Claude's edits, 0 if none), bend, sway (now), push (target)}
 
@@ -286,10 +274,6 @@
     detailsBody: byId('detailsBody'),
     helpDialog: byId('helpDialog'),
     announcer: byId('announcer'),
-    newBanner: byId('newBanner'),
-    newText: byId('newText'),
-    newShowBtn: byId('newShowBtn'),
-    newCloseBtn: byId('newCloseBtn'),
   };
 
   /** An HTML element with optional class and text (text is never parsed as HTML). */
@@ -341,9 +325,6 @@
     coreTurn: 0, // radians the core has turned (against the globe's spin)
     pointer: null, // where the cursor is over the map (px), for the strands' sway
     growStart: 0, // when the strands began growing out (ms)
-    arriveStart: 0, // when the new dust sets off from the nucleus (ms), or 0 when it has all arrived
-    showNew: false, // the halos and the "new since last time" note are showing
-    lightClock: 0, // seconds the strand lights have travelled (only while spinning, so they freeze when it stops)
     lastTick: 0, // the spin's last frame (ms), to move on by the time passed
     mode: 'globe', // 'globe' or 'web' (section 06b)
     views: {}, // each mode's own zoom and position, kept while the other is shown
@@ -531,8 +512,6 @@
     near: null, // 1 = the selection or linked to it
     core: null, // 1 = one of the picked language's or kind's own items (named on the globe)
     moon: null, // 1 = on the moon (its pos is around the moon's centre)
-    fresh: [], // specks new since the map was last built (indexes), with their start delays in `delay`
-    delay: null,
     world: null, // x, y, z of every speck now (the moon's move as it circles)
     moonGrid: [], // the moon's grid lines (around its own centre)
     order: null, // scratch: specks sorted by brightness and colour
@@ -578,8 +557,6 @@
       paint.color[i] = COLOR_KEYS.indexOf(languageOf(node));
     });
     paint.world = Float32Array.from(paint.pos); // the globe's dust never moves; the core's turns each frame
-    paint.fresh = paint.ids.map((id, i) => (NEW_IDS.has(id) ? i : -1)).filter((i) => i >= 0);
-    paint.delay = Float32Array.from(paint.fresh, (i) => hash(`${paint.ids[i]}arrive`) * ARRIVE_SPREAD_MS);
     makeRays();
     updateWorld();
     sizeCanvas();
@@ -662,7 +639,6 @@
     const { width, height } = state.box;
     state.lastDraw = performance.now();
     updateWorld();
-    const arriving = moveNewDust(state.lastDraw);
     ctx.globalAlpha = 1;
     ctx.fillStyle = MAP_BG;
     ctx.fillRect(0, 0, width, height);
@@ -683,97 +659,8 @@
     if (SATELLITE) drawNucleus(ctx);
     drawGrid(ctx, 0);
     drawDust(ctx, 0);
-    drawNewGlow(ctx, arriving);
     drawRings(ctx);
     drawNames(ctx);
-    if (arriving) drawSoon(); // keep painting until the new dust has arrived
-  }
-
-  /* ---- New since last time: the dust flies out of the nucleus to its place, then keeps a soft halo ---- */
-  /** How far a new speck has travelled (0 = still at the nucleus, 1 = arrived), eased to slow down at the end. */
-  function arrival(j, now) {
-    if (!state.arriveStart) return 1;
-    const t = Math.min(1, Math.max(0, (now - state.arriveStart - paint.delay[j]) / ARRIVE_MS));
-    return 1 - (1 - t) ** 3;
-  }
-
-  /** Put the new dust where it is on its trip out from the nucleus (the centre, so its place × how far it's come).
-      Returns whether any is still travelling; once all have arrived, the trip is over for good. */
-  function moveNewDust(now) {
-    if (!state.arriveStart) return false;
-    const { pos, world, moon, fresh } = paint;
-    let travelling = false;
-    fresh.forEach((i, j) => {
-      const e = arrival(j, now);
-      if (e < 1) travelling = true;
-      for (let k = 0; k < 3; k++) world[i * 3 + k] = (moon[i] ? world[i * 3 + k] : pos[i * 3 + k]) * e; // the core's is turned already
-    });
-    if (!travelling) state.arriveStart = 0;
-    return travelling;
-  }
-
-  /** A soft mint halo round each new speck while "new since last time" shows, bright as it flies in. */
-  function drawNewGlow(ctx, arriving) {
-    if (!state.showNew || state.mode === 'web' || !paint.fresh.length) return;
-    const { sx, sy, bucket } = paint;
-    const soft = new Path2D();
-    const ring = new Path2D();
-    const now = state.lastDraw;
-    paint.fresh.forEach((i, j) => {
-      if (bucket[i] === NO_BUCKET) return;
-      const r = dotRadius(i);
-      const flight = arriving ? 1 - arrival(j, now) : 0;
-      const outer = r + NEW_GLOW.px * (1 + flight);
-      soft.moveTo(sx[i] + outer, sy[i]);
-      soft.arc(sx[i], sy[i], outer, 0, Math.PI * 2);
-      ring.moveTo(sx[i] + r + 2.5, sy[i]);
-      ring.arc(sx[i], sy[i], r + 2.5, 0, Math.PI * 2);
-    });
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = `rgba(${NEW_GLOW.color}, ${arriving ? NEW_GLOW.soft * 1.6 : NEW_GLOW.soft})`;
-    ctx.fill(soft);
-    ctx.lineWidth = 0.8;
-    ctx.strokeStyle = `rgba(${NEW_GLOW.color}, ${arriving ? NEW_GLOW.flash : NEW_GLOW.ring})`;
-    ctx.stroke(ring);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  /** "New since last time: 1 project · 24 files · 80 code parts · 3 removed", or '' when nothing changed. */
-  function changesText() {
-    const kinds = { project: 0, folder: 0, file: 0, code: 0 };
-    NEW_IDS.forEach((id) => {
-      const type = nodeById.get(id).type;
-      if (type === 'folder') kinds[/^folder:[^/]+\/\.$/.test(id) ? 'project' : 'folder'] += 1;
-      else kinds[type === 'file' ? 'file' : 'code'] += 1;
-    });
-    const names = { project: 'project', folder: 'folder', file: 'file', code: 'code part' };
-    const parts = Object.entries(kinds)
-      .filter(([, count]) => count)
-      .map(([kind, count]) => `${count.toLocaleString('en')} ${names[kind]}${count === 1 ? '' : 's'}`);
-    if (CHANGES.gone) parts.push(`${CHANGES.gone.toLocaleString('en')} removed`);
-    return parts.length ? `New since last time: ${parts.join(' · ')}` : '';
-  }
-
-  /** Show the "new since last time" note and start the new dust's trip (no trip with less motion). */
-  function showChanges(instant) {
-    const text = changesText();
-    if (!text) return;
-    els.newText.textContent = text;
-    els.newBanner.hidden = false;
-    els.newShowBtn.hidden = !NEW_IDS.size;
-    state.showNew = NEW_IDS.size > 0;
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (NEW_IDS.size && !still) state.arriveStart = performance.now() + (instant ? 0 : ARRIVE_DELAY_MS);
-    announce(`${text}.`);
-    drawSoon();
-  }
-
-  /** Put the note and the halos away (and stop showing only the new dust). */
-  function hideChanges() {
-    els.newBanner.hidden = true;
-    state.showNew = false;
-    if (state.pick && state.pick.by === 'new') pick('new', 'new');
-    drawSoon();
   }
 
   /** A warm haze round Claude's core, fading out toward the globe: the inside looks lit by the nucleus. */
@@ -839,7 +726,6 @@
     toScreen(0, 0, 0);
     const [cx, cy] = [spot.x, spot.y];
     let moving = grow < 1;
-    const lights = { tails: Array.from({ length: LIGHT_TAIL_STEPS }, () => new Path2D()), heads: [] };
     strands.forEach((strand) => {
       const i = strand.index;
       toScreen(paint.world[i * 3], paint.world[i * 3 + 1], paint.world[i * 3 + 2]);
@@ -855,7 +741,6 @@
       const [kx, ky] = [mx + nx * bend * 2, my + ny * bend * 2]; // the control point (the curve passes halfway)
       const group = focus ? (paint.near[i] ? 2 : 3) : strand.weight > 0 ? 2 : far ? 1 : 0;
       addStrandPieces(paths[group], cx, cy, kx, ky, ex, ey, grow);
-      if (grow >= 1) addLights(lights, strand, group, [cx, cy, kx, ky, ex, ey]);
     });
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
@@ -872,30 +757,10 @@
         ctx.stroke(path);
       });
     });
-    drawLights(ctx, lights);
     ctx.globalCompositeOperation = 'source-over';
     ctx.lineCap = 'butt';
     ctx.globalAlpha = 1;
     if (moving) drawSoon(); // still growing or swaying: keep painting until it settles
-  }
-
-  /** Add this strand's travelling lights: one (two on Claude's strands, evenly apart), each at its own place
-      along the curve (offset by the strand's bend, so they're never in step). Faded strands carry none. */
-  function addLights(lights, strand, group, curve) {
-    if (group === 3) return; // dimmed while something else is picked
-    const claude = group === 2;
-    const count = claude ? 2 : 1;
-    const trip = claude ? LIGHT_TRIP_S.claude : LIGHT_TRIP_S.plain;
-    for (let n = 0; n < count; n++) {
-      const t = (((state.lightClock / trip + (strand.bend + 1) * 3.7 + n / count) % 1) + 1) % 1;
-      const alpha = (claude ? LIGHT_ALPHA.claude : LIGHT_ALPHA.plain) * (group === 1 ? STRAND_ALPHA.far : 1);
-      for (let k = 0; k < LIGHT_TAIL_STEPS; k++) {
-        const a = Math.max(0, t - LIGHT_TAIL * (1 - k / LIGHT_TAIL_STEPS));
-        const b = Math.max(0, t - LIGHT_TAIL * (1 - (k + 1) / LIGHT_TAIL_STEPS));
-        if (b > a) addCurveSection(lights.tails[k], curve, a, b);
-      }
-      lights.heads.push({ at: curvePoint(curve, t), t, alpha, claude });
-    }
   }
 
   /** The point `t` (0 → 1) along a quadratic curve [ax, ay, kx, ky, bx, by]. */
@@ -911,31 +776,6 @@
     const [qa, qb] = [(1 - a) * (1 - b), (1 - a) * b + a * (1 - b)];
     path.moveTo(sa[0], sa[1]);
     path.quadraticCurveTo(qa * ax + qb * kx + a * b * bx, qa * ay + qb * ky + a * b * by, sb[0], sb[1]);
-  }
-
-  /** Paint the lights: tails that fade and thin behind each head (shared strokes), then each head as a small
-      glow in its strand's colour at that point (warm near the nucleus, blue near the file) with a white centre. */
-  function drawLights(ctx, { tails, heads }) {
-    if (!heads.length) return;
-    tails.forEach((path, k) => {
-      const f = (k + 1) / LIGHT_TAIL_STEPS; // 1 at the head
-      ctx.strokeStyle = '#fff6e8';
-      ctx.lineWidth = 0.5 + 1.1 * f;
-      ctx.globalAlpha = 0.5 * f * f;
-      ctx.stroke(path);
-    });
-    heads.forEach(({ at: [x, y], t, alpha, claude }) => {
-      const radius = claude ? 4.5 : 3;
-      const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      glow.addColorStop(0, 'rgba(255, 252, 240, 1)');
-      glow.addColorStop(0.35, STRAND_COLORS[Math.min(STRAND_PIECES - 1, Math.floor(t * STRAND_PIECES))]);
-      glow.addColorStop(1, 'rgba(128, 178, 240, 0)');
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = glow;
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fill();
-    });
   }
 
   /** How far the cursor pushes a strand sideways (px, along its normal): strands within STRAND_SWAY.reach of the
@@ -1154,7 +994,6 @@
         multiply(state.camera.rotation, turnMatrix(seconds * SPIN_SPEED, 0)),
       );
       if (SATELLITE) state.coreTurn = (state.coreTurn - seconds * (SPIN_SPEED + CORE_SPIN)) % (2 * Math.PI); // against the globe
-      state.lightClock += seconds;
       if (now - state.lastDraw >= 1000 / MOTION_FPS - 4) drawMap(); // a little early, so timing jitter doesn't skip one
     }
     state.spinFrame = requestAnimationFrame(animateSpin);
@@ -2236,13 +2075,7 @@
     paint.near.fill(0);
     paint.core.fill(0);
     const pick = state.pick;
-    if (pick && pick.by === 'new') {
-      paint.fresh.forEach((i) => {
-        paint.near[i] = 1;
-        const type = nodeById.get(paint.ids[i]).type;
-        if (type === 'file' || type === 'folder') paint.core[i] = 1; // name the new files and folders
-      });
-    } else if (pick && pick.by === 'language') {
+    if (pick && pick.by === 'language') {
       const colour = COLOR_KEYS.indexOf(pick.key);
       for (let i = 0; i < paint.n; i++) {
         if (paint.color[i] !== colour) continue;
@@ -2284,10 +2117,6 @@
     markPicked();
     highlight();
     if (same) return announce('Showing everything.');
-    if (by === 'new') {
-      announce(`Showing ${NEW_IDS.size.toLocaleString('en')} new items.`);
-      return fit(paint.fresh.map((i) => paint.ids[i]));
-    }
     let [items, links] = [0, 0];
     const colour = COLOR_KEYS.indexOf(key);
     const type = key === 'folder' ? 'folder' : 'file';
@@ -2631,8 +2460,6 @@
     els.themeBtn.addEventListener('click', cycleTheme);
     els.numbersBtn.addEventListener('click', () => toggleNumbers());
     els.spinBtn.addEventListener('click', () => setSpin(!state.spinning));
-    els.newShowBtn.addEventListener('click', () => pick('new', 'new'));
-    els.newCloseBtn.addEventListener('click', hideChanges);
     document.querySelectorAll('.view-btn').forEach((button) => {
       button.addEventListener('click', () => setMode(button.dataset.view));
     });
@@ -2640,65 +2467,6 @@
       .matchMedia('(prefers-color-scheme: dark)')
       .addEventListener('change', () => applyTheme(state.theme));
     document.addEventListener('keydown', handleShortcuts);
-  }
-
-  /* ---- A live map (opened by Atlas.app from this Mac): reload when it changes, keeping the view ---- */
-  /** Ask the place this page came from whether the map changed, every LIVE_CHECK_MS; reload when it did. Only
-      for a page served by Atlas on this Mac (a map opened as a file has nothing to ask). */
-  function watchLive() {
-    const local = ['127.0.0.1', 'localhost'].includes(location.hostname);
-    if (!/^https?:$/.test(location.protocol) || !local) return;
-    let known = null;
-    const check = async () => {
-      try {
-        const answer = await fetch('/version', { cache: 'no-store' });
-        const version = answer.ok ? await answer.text() : '';
-        if (known === null) known = version;
-        else if (version && version !== known) return reloadKeepingView();
-      } catch {
-        // Atlas has stopped: keep showing the last map
-      }
-      setTimeout(check, LIVE_CHECK_MS);
-    };
-    check();
-  }
-
-  /** Reload the page for the new map, remembering how it's turned and zoomed (this tab only). */
-  function reloadKeepingView() {
-    const view = {
-      rotation: Array.from(state.camera.rotation),
-      view: { ...state.view },
-      coreTurn: state.coreTurn,
-      lightClock: state.lightClock,
-      panel: !els.details.hidden,
-    };
-    try {
-      sessionStorage.setItem(LIVE_VIEW_KEY, JSON.stringify(view));
-    } catch {
-      // no storage: the new map opens fitted instead
-    }
-    location.reload();
-  }
-
-  /** After a live reload: the view as it was, without the opening intro. Returns whether it was restored. */
-  function restoreLiveView() {
-    let saved;
-    try {
-      saved = JSON.parse(sessionStorage.getItem(LIVE_VIEW_KEY) || 'null');
-      sessionStorage.removeItem(LIVE_VIEW_KEY);
-    } catch {
-      return false;
-    }
-    const rotation = saved && saved.rotation;
-    if (!Array.isArray(rotation) || rotation.length !== 9 || !rotation.every(Number.isFinite)) return false;
-    state.camera.rotation = rotation;
-    const { x, y, k } = saved.view || {};
-    if ([x, y, k].every(Number.isFinite) && k > 0) state.view = { x, y, k };
-    state.coreTurn = Number(saved.coreTurn) || 0;
-    state.lightClock = Number(saved.lightClock) || 0;
-    state.growStart = performance.now() - STRAND_GROW_MS; // the strands are already out
-    if (saved.panel) toggleNumbers(true);
-    return true;
   }
 
   /** Start: theme, project name, folder tree, layout, numbers, health. */
@@ -2718,16 +2486,12 @@
     followMapSize();
     redraw();
     fit(paint.ids, true); // opening the page: no glide
-    const reloaded = restoreLiveView();
-    if (reloaded) applyView();
     renderLegend();
     setSpin(readSpin(), false);
     setMode(readMode(), false);
     renderDetails();
     renderHealth();
     openLinkedStar();
-    showChanges(reloaded);
-    watchLive();
   }
 
   init();
