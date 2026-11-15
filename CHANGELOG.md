@@ -3,6 +3,8 @@
 Updates to this project, newest first. Older entries come from the Git history (commit hash in brackets).
 
 ## 2026-11-15
+### Fixed
+- **Pop-up boxes no longer scroll the page behind them:** swiping inside a pop-up, or on the dimmed area around it, stays in the pop-up (`overscroll-behavior` on `dialog:modal` and `::backdrop`). Full effect in Chrome, Edge and Firefox; Safari applies it when the box's own content scrolls. From Chrome's Modern Web Guidance. Shows in the Mac app after the next `Atlas.app` build. (not pushed yet)
 ### Removed
 - **New dust when Atlas opens and the live map, undone (your request):** both features from 5e16f13 are reverted, so the Mac app works as before: it rebuilds the map on each double-click and opens it as a file, with no background server and a Dock icon again. (b42a5ca)
 - **The lights travelling along the strands** (added 2026-11-14 in 53cdade). The strands, their colours, sway and opening growth stay. With nothing travelling, the spin repaints 20 times a second again (was 30), so it's lighter on the Mac. (b42a5ca)

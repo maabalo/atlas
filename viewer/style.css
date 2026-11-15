@@ -930,6 +930,17 @@ kbd {
   background: rgb(10 12 15 / 50%);
 }
 
+/* Modal pop-ups: a swipe inside the box or on the dimmed area doesn't scroll the page behind.
+   Full effect in Chrome, Edge and Firefox; Safari applies it when the box's own content scrolls. */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden; /* makes the backdrop a scroll container, so overscroll-behavior applies */
+  overscroll-behavior: contain;
+}
+
 .dialog-bar {
   display: flex;
   align-items: center;
